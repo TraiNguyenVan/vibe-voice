@@ -1,0 +1,217 @@
+/* ─── Reset & Base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #0d0d12;
+  --surface:    #15151f;
+  --border:     rgba(255,255,255,0.07);
+  --accent:     #7c6af7;
+  --accent-dim: rgba(124,106,247,0.18);
+  --red:        #e05555;
+  --red-dim:    rgba(224,85,85,0.20);
+  --green:      #4ecb80;
+  --orange:     #e09055;
+  --text:       #e4e4f0;
+  --muted:      #55556a;
+  --radius:     18px;
+}
+
+html, body {
+  width: 340px;
+  height: 160px;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── App shell ────────────────────────────────────────────── */
+#app {
+  width: 340px;
+  height: 160px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Multi-layer glow shadow */
+  box-shadow:
+    0 0 0 1px rgba(124,106,247,0.08),
+    0 8px 32px rgba(0,0,0,0.55),
+    0 2px 8px rgba(0,0,0,0.40);
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Titlebar ─────────────────────────────────────────────── */
+#titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 6px;
+  cursor: default;
+  user-select: none;
+}
+
+#app-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+#close-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+#close-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+/* ─── Content row ──────────────────────────────────────────── */
+#content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 18px 14px;
+}
+
+/* ─── Mic button ───────────────────────────────────────────── */
+#mic-wrap {
+  position: relative;
+  width: 68px; height: 68px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+#mic-btn {
+  position: relative;
+  z-index: 1;
+  width: 60px; height: 60px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(124,106,247,0.45);
+}
+
+#mic-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 22px rgba(124,106,247,0.55);
+}
+
+#mic-btn:active, #mic-btn.recording {
+  background: var(--red);
+  box-shadow: 0 4px 20px rgba(224,85,85,0.55);
+  transform: scale(0.97);
+}
+
+#mic-icon {
+  width: 26px; height: 26px;
+  transition: transform 0.2s;
+}
+
+/* Ripple rings — only visible when .recording */
+.ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid var(--red);
+  opacity: 0;
+  width: 60px; height: 60px;
+}
+
+#mic-btn.recording ~ .ring,
+.recording-active .ring {
+  /* Rings are siblings of mic-wrap; toggled via JS class on #mic-wrap */
+}
+
+#mic-wrap.recording .ring {
+  animation: ripple 1.6s ease-out infinite;
+}
+#mic-wrap.recording .ring-1 { animation-delay: 0s; }
+#mic-wrap.recording .ring-2 { animation-delay: 0.5s; }
+
+@keyframes ripple {
+  0%   { transform: scale(1);    opacity: 0.6; }
+  100% { transform: scale(2.0);  opacity: 0; }
+}
+
+/* ─── Info column ──────────────────────────────────────────── */
+#info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+
+#hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
+#transcript {
+  font-size: 11.5px;
+  color: var(--accent);
+  font-style: italic;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.3s, transform 0.3s;
+  min-height: 0;
+}
+
+#transcript.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Status colour modifiers ──────────────────────────────── */
+.status-recording #status  { color: var(--red); }
+.status-thinking  #status  { color: var(--accent); }
+.status-done      #status  { color: var(--green); }
+.status-copied    #status  { color: var(--accent); }
+.status-error     #status  { color: var(--orange); }
+
+/* ─── Spinner ──────────────────────────────────────────────── */
+.spinner::after {
+  content: '';
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-left: 6px;
+  border: 1.5px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

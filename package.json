@@ -1,0 +1,15 @@
+{
+  "name": "vibe-voice",
+  "version": "0.1.0",
+  "description": "Push-to-talk speech-to-text powered by Groq Whisper",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  }
+}

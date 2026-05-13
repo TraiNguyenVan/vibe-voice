@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Rust / Tauri
+src-tauri/target/
+
+# Node.js / pnpm
+node_modules/
+.pnpm/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
