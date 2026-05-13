@@ -2,6 +2,7 @@ if (!window.__TAURI__) throw new Error('__TAURI__ missing — check withGlobalTa
 
 const { invoke }           = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
+const { listen }           = window.__TAURI__.event;
 const appWindow = getCurrentWindow();
 
 const micBtn       = document.getElementById('mic-btn');
@@ -13,7 +14,8 @@ const app          = document.getElementById('app');
 
 let isRecording = false;
 
-closeBtn.addEventListener('click', () => appWindow.close());
+// Close button just hides the window (tray keeps the app alive)
+closeBtn.addEventListener('click', () => appWindow.hide());
 
 const STATUS = {
   idle:      { text: 'Hold to record',      cls: '' },
@@ -48,6 +50,8 @@ async function startRecording() {
     micWrap.classList.add('recording');
     transcriptEl.classList.remove('visible');
     setStatus('recording');
+    // Sync tray icon to recording state
+    invoke('set_tray_recording', { recording: true }).catch(() => {});
   } catch (err) {
     console.error('[vibe-voice] start_recording error:', err);
     showTranscript(String(err));
@@ -62,6 +66,8 @@ async function stopAndTranscribe() {
   micBtn.classList.remove('recording');
   micWrap.classList.remove('recording');
   setStatus('thinking');
+  // Sync tray icon back to idle
+  invoke('set_tray_recording', { recording: false }).catch(() => {});
 
   try {
     const transcript = await invoke('stop_transcribe');
@@ -88,19 +94,19 @@ async function stopAndTranscribe() {
   }
 }
 
-// ── Mouse PTT ─────────────────────────────────────────────────
+// ── Mouse PTT ─────────────────────────────────────────────────────────────
 micBtn.addEventListener('mousedown', e => { e.preventDefault(); startRecording(); });
 window.addEventListener('mouseup',   ()  => { if (isRecording) stopAndTranscribe(); });
 
-// ── Ctrl+Space hold-to-talk ───────────────────────────────────
-// keydown fires repeatedly when held — ignore repeats, only start once
+// ── Ctrl+Space hold-to-talk (window-local) ────────────────────────────────
+// This fires when the vibe-voice window is focused.
+// The global hotkey (evdev) fires even when the window is NOT focused.
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && e.ctrlKey && !e.repeat) {
     e.preventDefault();
     startRecording();
   }
 });
-// Release Ctrl or Space → stop
 window.addEventListener('keyup', e => {
   if ((e.code === 'Space' || e.code === 'ControlLeft' || e.code === 'ControlRight') && isRecording) {
     e.preventDefault();
@@ -108,5 +114,19 @@ window.addEventListener('keyup', e => {
   }
 });
 
+// ── Global Ctrl+Space PTT (evdev via Rust background thread) ─────────────
+// These events are emitted by the Rust evdev listener — works on any Wayland compositor
+// even when this window has no focus.
+listen('global-ptt-start', () => {
+  console.log('[vibe-voice] global PTT start');
+  startRecording();
+}).catch(e => console.error('[vibe-voice] listen error:', e));
+
+listen('global-ptt-stop', () => {
+  console.log('[vibe-voice] global PTT stop');
+  stopAndTranscribe();
+}).catch(e => console.error('[vibe-voice] listen error:', e));
+
+// ── Init ──────────────────────────────────────────────────────────────────
 setStatus('idle');
-console.log('[vibe-voice] ready');
+console.log('[vibe-voice] ready — tray + global hotkey active');
