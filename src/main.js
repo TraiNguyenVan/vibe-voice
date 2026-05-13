@@ -1,44 +1,34 @@
-// Tauri injects window.__TAURI__ when withGlobalTauri: true (no bundler needed)
+if (!window.__TAURI__) throw new Error('__TAURI__ missing — check withGlobalTauri');
+
 const { invoke }           = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
-
 const appWindow = getCurrentWindow();
 
-// ── DOM refs ──────────────────────────────────────────────────
-const micBtn      = document.getElementById('mic-btn');
-const micWrap     = document.getElementById('mic-wrap');
-const statusEl    = document.getElementById('status');
-const hintEl      = document.getElementById('hint');
+const micBtn       = document.getElementById('mic-btn');
+const micWrap      = document.getElementById('mic-wrap');
+const statusEl     = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
-const closeBtn    = document.getElementById('close-btn');
-const app         = document.getElementById('app');
+const closeBtn     = document.getElementById('close-btn');
+const app          = document.getElementById('app');
 
-// ── State ─────────────────────────────────────────────────────
-let mediaRecorder = null;
-let audioChunks   = [];
-let isRecording   = false;
-let stream        = null;
+let isRecording = false;
 
-// ── Close button ──────────────────────────────────────────────
 closeBtn.addEventListener('click', () => appWindow.close());
 
-// ── Status helpers ────────────────────────────────────────────
 const STATUS = {
-  idle:       { text: 'Hold to record',    cls: '' },
-  recording:  { text: 'Recording…',        cls: 'status-recording' },
-  thinking:   { text: 'Transcribing…',     cls: 'status-thinking' },
-  done:       { text: '✓ Pasted!',          cls: 'status-done' },
-  copied:     { text: '📋 Copied — Ctrl+V', cls: 'status-copied' },
-  short:      { text: 'Too short — retry', cls: 'status-error' },
-  error:      { text: 'Error — see console', cls: 'status-error' },
-  nomic:      { text: 'Mic access denied', cls: 'status-error' },
+  idle:      { text: 'Hold to record',      cls: '' },
+  recording: { text: 'Recording…',          cls: 'status-recording' },
+  thinking:  { text: 'Transcribing…',       cls: 'status-thinking' },
+  done:      { text: '✓ Pasted!',            cls: 'status-done' },
+  copied:    { text: '📋 Copied — Ctrl+V',  cls: 'status-copied' },
+  short:     { text: 'Too short — retry',   cls: 'status-error' },
+  error:     { text: 'Error',               cls: 'status-error' },
 };
 
 function setStatus(key) {
   const s = STATUS[key] || STATUS.idle;
   statusEl.textContent = s.text;
   app.className = s.cls;
-  // spinner only on thinking
   statusEl.classList.toggle('spinner', key === 'thinking');
 }
 
@@ -49,78 +39,38 @@ function showTranscript(text) {
   transcriptEl.classList.add('visible');
 }
 
-// ── Mic permission (request early) ───────────────────────────
-async function getMicStream() {
-  if (stream) return stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    return stream;
-  } catch {
-    setStatus('nomic');
-    return null;
-  }
-}
-
-// ── Recording core ────────────────────────────────────────────
 async function startRecording() {
   if (isRecording) return;
-  const s = await getMicStream();
-  if (!s) return;
-
-  audioChunks = [];
-  mediaRecorder = new MediaRecorder(s, { mimeType: 'audio/webm;codecs=opus' });
-  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-  mediaRecorder.start(100); // collect chunks every 100ms
-  isRecording = true;
-
-  micBtn.classList.add('recording');
-  micWrap.classList.add('recording');
-  transcriptEl.classList.remove('visible');
-  setStatus('recording');
+  try {
+    await invoke('start_recording');
+    isRecording = true;
+    micBtn.classList.add('recording');
+    micWrap.classList.add('recording');
+    transcriptEl.classList.remove('visible');
+    setStatus('recording');
+  } catch (err) {
+    console.error('[vibe-voice] start_recording error:', err);
+    showTranscript(String(err));
+    setStatus('error');
+    setTimeout(() => setStatus('idle'), 3000);
+  }
 }
 
-async function stopRecording() {
-  if (!isRecording || !mediaRecorder) return;
+async function stopAndTranscribe() {
+  if (!isRecording) return;
   isRecording = false;
-
   micBtn.classList.remove('recording');
   micWrap.classList.remove('recording');
-
-  await new Promise(resolve => {
-    mediaRecorder.onstop = resolve;
-    mediaRecorder.stop();
-  });
-
-  const blob = new Blob(audioChunks, { type: 'audio/webm' });
-
-  // Guard: too short (< 0.4s worth of data — roughly 3 chunks at 100ms)
-  if (audioChunks.length < 4 || blob.size < 2000) {
-    setStatus('short');
-    setTimeout(() => setStatus('idle'), 2000);
-    return;
-  }
-
   setStatus('thinking');
-  await transcribeAndPaste(blob);
-}
 
-// ── Transcribe + paste ────────────────────────────────────────
-async function transcribeAndPaste(blob) {
   try {
-    const buffer    = await blob.arrayBuffer();
-    const audioData = Array.from(new Uint8Array(buffer));
+    const transcript = await invoke('stop_transcribe');
+    console.log('[vibe-voice] transcript:', transcript);
 
-    const transcript = await invoke('transcribe', { audioData });
-
-    if (!transcript || transcript.trim() === '') {
-      setStatus('idle');
-      return;
-    }
+    if (!transcript || !transcript.trim()) { setStatus('idle'); return; }
 
     showTranscript(transcript);
-    setStatus('thinking');
 
-    // paste_text hides window, injects Ctrl+V, shows window again
     const pasted = await invoke('paste_text', { text: transcript });
     setStatus(pasted ? 'done' : 'copied');
 
@@ -130,30 +80,33 @@ async function transcribeAndPaste(blob) {
     }, 3000);
 
   } catch (err) {
-    console.error('[vibe-voice]', err);
-    setStatus('error');
+    console.error('[vibe-voice] stop_transcribe error:', err);
+    const msg = String(err);
+    if (msg.includes('too short')) { setStatus('short'); }
+    else { setStatus('error'); showTranscript(msg); }
     setTimeout(() => setStatus('idle'), 3000);
   }
 }
 
-// ── Push-to-talk: mouse ───────────────────────────────────────
+// ── Mouse PTT ─────────────────────────────────────────────────
 micBtn.addEventListener('mousedown', e => { e.preventDefault(); startRecording(); });
-window.addEventListener('mouseup',   ()  => { if (isRecording) stopRecording(); });
+window.addEventListener('mouseup',   ()  => { if (isRecording) stopAndTranscribe(); });
 
-// ── Push-to-talk: Ctrl+Space toggle ──────────────────────────
-let shortcutActive = false;
+// ── Ctrl+Space hold-to-talk ───────────────────────────────────
+// keydown fires repeatedly when held — ignore repeats, only start once
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.ctrlKey && !shortcutActive) {
+  if (e.code === 'Space' && e.ctrlKey && !e.repeat) {
     e.preventDefault();
-    shortcutActive = true;
-    if (isRecording) stopRecording();
-    else             startRecording();
+    startRecording();
   }
 });
+// Release Ctrl or Space → stop
 window.addEventListener('keyup', e => {
-  if (e.code === 'Space') shortcutActive = false;
+  if ((e.code === 'Space' || e.code === 'ControlLeft' || e.code === 'ControlRight') && isRecording) {
+    e.preventDefault();
+    stopAndTranscribe();
+  }
 });
 
-// ── Init ──────────────────────────────────────────────────────
 setStatus('idle');
-getMicStream(); // warm up mic permission on load
+console.log('[vibe-voice] ready');

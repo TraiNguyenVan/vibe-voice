@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Push-to-talk speech-to-text powered by Groq Whisper",
   "scripts": {
+    "dev": "tauri dev",
     "tauri": "tauri"
   },
   "packageManager": "pnpm@10.0.0",

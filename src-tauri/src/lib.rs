@@ -1,32 +1,57 @@
+use std::sync::Mutex;
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
-
 use reqwest::multipart;
-use tauri::{Manager, State};
+use tauri::State;
 
-// ── API key storage ───────────────────────────────────────────
 pub struct ApiKey(pub String);
+pub struct RecordingHandle(pub Mutex<Option<std::process::Child>>);
 
-// ── Groq endpoint ─────────────────────────────────────────────
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
-const MODEL: &str = "whisper-large-v3-turbo";
+const MODEL: &str    = "whisper-large-v3-turbo";
+const TMP_WAV: &str  = "/tmp/vibe-voice-rec.wav";
 
-// ── transcribe command ────────────────────────────────────────
 #[tauri::command]
-async fn transcribe(
-    audio_data: Vec<u8>,
+fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
+    let mut guard = handle.0.lock().unwrap();
+    if guard.is_some() { return Ok(()); }
+
+    let _ = std::fs::remove_file(TMP_WAV);
+
+    let child = Command::new("parec")
+        .args(["--channels=1", "--rate=16000", "--format=s16le",
+               "--file-format=wav", "--latency-msec=50", TMP_WAV])
+        .spawn()
+        .map_err(|e| format!("parec failed: {e}"))?;
+
+    *guard = Some(child);
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_transcribe(
+    handle: State<'_, RecordingHandle>,
     api_key: State<'_, ApiKey>,
 ) -> Result<String, String> {
-    if audio_data.is_empty() {
-        return Err("Empty audio data".into());
+    {
+        let mut guard = handle.0.lock().unwrap();
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
-    let key = api_key.0.clone();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    let part = multipart::Part::bytes(audio_data)
-        .file_name("audio.webm")
-        .mime_str("audio/webm")
+    let audio = std::fs::read(TMP_WAV)
+        .map_err(|e| format!("read wav: {e}"))?;
+
+    if audio.len() < 1000 {
+        return Err("too short".into());
+    }
+
+    let part = multipart::Part::bytes(audio)
+        .file_name("rec.wav")
+        .mime_str("audio/wav")
         .map_err(|e| e.to_string())?;
 
     let form = multipart::Form::new()
@@ -34,95 +59,51 @@ async fn transcribe(
         .text("response_format", "text")
         .part("file", part);
 
-    let client = reqwest::Client::new();
-    let response = client
+    let resp = reqwest::Client::new()
         .post(GROQ_URL)
-        .header("Authorization", format!("Bearer {}", key))
+        .header("Authorization", format!("Bearer {}", api_key.0))
         .multipart(form)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
+        .send().await
+        .map_err(|e| format!("network: {e}"))?;
 
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("Response read error: {}", e))?;
+    let status = resp.status();
+    let body   = resp.text().await.map_err(|e| e.to_string())?;
 
     if !status.is_success() {
-        return Err(format!("Groq API error {}: {}", status, body));
+        return Err(format!("Groq {status}: {body}"));
     }
-
     Ok(body.trim().to_string())
 }
 
-// ── paste_text command ────────────────────────────────────────
-// Hides the Vibe Voice window first so the previous app regains focus,
-// then uses wl-copy + ydotool to paste at the evdev level.
 #[tauri::command]
-async fn paste_text(
-    text: String,
-    window: tauri::WebviewWindow,
-) -> Result<bool, String> {
-    // Step 1: write to Wayland clipboard
-    let clip_ok = Command::new("wl-copy")
-        .arg(&text)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if !clip_ok {
-        return Err("wl-copy failed".into());
-    }
-
-    // Step 2: hide Vibe Voice window so previous app gets focus back
-    window.hide().map_err(|e| e.to_string())?;
-
-    // Step 3: give compositor time to re-focus the previous window
-    thread::sleep(Duration::from_millis(300));
-
-    // Step 4: simulate Ctrl+V via ydotool at evdev level (bypasses Wayland security)
-    // Key codes: 29 = Left Ctrl, 47 = V
-    let paste_ok = Command::new("ydotool")
+async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, String> {
+    Command::new("wl-copy").arg(&text).status().map_err(|e| e.to_string())?;
+    window.hide().ok();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let ok = Command::new("ydotool")
         .args(["key", "29:1", "47:1", "47:0", "29:0"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    // Step 5: show window again after paste
-    thread::sleep(Duration::from_millis(200));
+        .status().map(|s| s.success()).unwrap_or(false);
+    std::thread::sleep(std::time::Duration::from_millis(150));
     window.show().ok();
     window.set_focus().ok();
-
-    Ok(paste_ok)
+    Ok(ok)
 }
 
-// ── app entry (called from main.rs) ──────────────────────────
 pub fn run() {
-    // Load .env from project root (parent of src-tauri/)
     let env_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join(".env");
-
-    if env_path.exists() {
-        dotenvy::from_path(&env_path).ok();
-    }
+        .parent().unwrap().join(".env");
+    if env_path.exists() { dotenvy::from_path(&env_path).ok(); }
 
     let api_key = std::env::var("GROQ_API_KEY").unwrap_or_else(|_| {
-        eprintln!("[vibe-voice] GROQ_API_KEY not set. Add it to .env");
+        eprintln!("[vibe-voice] GROQ_API_KEY not set");
         String::new()
     });
 
     tauri::Builder::default()
         .manage(ApiKey(api_key))
-        .invoke_handler(tauri::generate_handler![transcribe, paste_text])
-        .setup(|app| {
-            let win = app.get_webview_window("main").unwrap();
-            // Force WebKit surface to be fully transparent — fixes Hyprland gray background
-            win.set_background_color(Some(tauri::Color(0, 0, 0, 0)))?;
-            Ok(())
-        })
+        .manage(RecordingHandle(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![start_recording, stop_transcribe, paste_text])
+        .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("tauri error");
 }
