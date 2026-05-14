@@ -17,13 +17,14 @@
 }
 
 html, body {
-  width: 340px;
-  height: 160px;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
   background: transparent;
   font-family: 'Inter', system-ui, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  border-radius: var(--radius);
 }
 
 /* ─── App shell ────────────────────────────────────────────── */

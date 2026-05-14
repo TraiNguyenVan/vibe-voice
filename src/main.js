@@ -130,3 +130,14 @@ listen('global-ptt-stop', () => {
 // ── Init ──────────────────────────────────────────────────────────────────
 setStatus('idle');
 console.log('[vibe-voice] ready — tray + global hotkey active');
+
+// ── Auto-fit window height to content ────────────────────────────────────
+// Measure the actual rendered #app height and resize the OS window to match.
+// This eliminates blank space without guessing a fixed pixel value.
+requestAnimationFrame(() => {
+  const h = document.getElementById('app').scrollHeight;
+  if (h > 0) {
+    const LogicalSize = window.__TAURI__.window.LogicalSize;
+    appWindow.setSize(new LogicalSize(340, h)).catch(() => {});
+  }
+});

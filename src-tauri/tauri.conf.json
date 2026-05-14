@@ -12,9 +12,9 @@
       {
         "label": "main",
         "title": "Vibe Voice",
-        "width": 340,
-        "height": 160,
-        "resizable": false,
+        "width": 1280,
+        "height": 720,
+        "resizable": true,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
