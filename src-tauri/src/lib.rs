@@ -38,7 +38,8 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
 #[tauri::command]
 async fn stop_transcribe(
     handle: State<'_, RecordingHandle>,
-    api_key: State<'_, ApiKey>,
+    env_key: State<'_, ApiKey>,
+    api_key: Option<String>,
 ) -> Result<String, String> {
     {
         let mut guard = handle.0.lock().unwrap();
@@ -57,6 +58,10 @@ async fn stop_transcribe(
         return Err("too short".into());
     }
 
+    let effective_key = api_key
+        .filter(|k| !k.is_empty())
+        .unwrap_or_else(|| env_key.0.clone());
+
     let part = multipart::Part::bytes(audio)
         .file_name("rec.wav")
         .mime_str("audio/wav")
@@ -69,7 +74,7 @@ async fn stop_transcribe(
 
     let resp = reqwest::Client::new()
         .post(GROQ_URL)
-        .header("Authorization", format!("Bearer {}", api_key.0))
+        .header("Authorization", format!("Bearer {}", effective_key))
         .multipart(form)
         .send().await
         .map_err(|e| format!("network: {e}"))?;

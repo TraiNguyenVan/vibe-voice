@@ -30,7 +30,8 @@ html, body {
 /* ─── App shell ────────────────────────────────────────────── */
 #app {
   width: 340px;
-  height: 160px;
+  min-height: 160px;
+  height: auto;
   background: var(--bg);
   border-radius: var(--radius);
   border: 1px solid var(--border);
@@ -79,6 +80,105 @@ html, body {
   transition: background 0.15s, color 0.15s;
 }
 #close-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+#titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#settings-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s, transform 0.3s;
+}
+#settings-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+#settings-btn.open { transform: rotate(90deg); color: var(--accent); }
+
+/* ─── Settings Panel ──────────────────────────────────────── */
+#settings-panel {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
+  padding: 0 18px;
+  border-top: 0px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#settings-panel.visible {
+  max-height: 180px;
+  opacity: 1;
+  padding: 12px 18px 14px;
+  border-top-width: 1px;
+}
+
+#settings-panel label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+#api-key-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: 'Inter', monospace;
+  outline: none;
+  transition: border-color 0.2s;
+}
+#api-key-input::placeholder { color: var(--muted); opacity: 0.6; }
+#api-key-input:focus { border-color: var(--accent); }
+
+#settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#settings-save-btn,
+#settings-cancel-btn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+#settings-save-btn {
+  background: var(--accent);
+  color: #fff;
+}
+#settings-save-btn:hover { opacity: 0.85; }
+
+#settings-cancel-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+#settings-cancel-btn:hover { color: var(--text); border-color: var(--muted); }
+
+#settings-status {
+  font-size: 10.5px;
+  color: var(--green);
+  min-height: 14px;
+  transition: color 0.2s;
+}
+#settings-status.error { color: var(--red); }
 
 /* ─── Content row ──────────────────────────────────────────── */
 #content {

@@ -10,9 +10,74 @@ const micWrap      = document.getElementById('mic-wrap');
 const statusEl     = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
 const closeBtn     = document.getElementById('close-btn');
+const settingsBtn  = document.getElementById('settings-btn');
+const settingsPanel = document.getElementById('settings-panel');
+const apiKeyInput  = document.getElementById('api-key-input');
+const saveBtn      = document.getElementById('settings-save-btn');
+const cancelBtn    = document.getElementById('settings-cancel-btn');
+const settingsStatus = document.getElementById('settings-status');
 const app          = document.getElementById('app');
 
 let isRecording = false;
+
+// ── Settings / API Key ──────────────────────────────────────────────────────
+const STORAGE_KEY = 'vibe-voice-groq-api-key';
+
+function getStoredApiKey() {
+  return localStorage.getItem(STORAGE_KEY) || '';
+}
+
+function saveApiKey(key) {
+  if (key) {
+    localStorage.setItem(STORAGE_KEY, key);
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function toggleSettings() {
+  const open = !settingsPanel.classList.contains('visible');
+  if (open) {
+    const current = getStoredApiKey();
+    apiKeyInput.value = current;
+    settingsStatus.textContent = current ? 'Key saved — ready to go' : '';
+    settingsStatus.className = '';
+    settingsBtn.classList.add('open');
+  } else {
+    settingsBtn.classList.remove('open');
+  }
+  settingsPanel.classList.toggle('visible', open);
+  refitWindow();
+}
+
+function handleSettingsSave() {
+  const key = apiKeyInput.value.trim();
+  if (!key) {
+    settingsStatus.textContent = 'Please enter an API key';
+    settingsStatus.className = 'error';
+    return;
+  }
+  saveApiKey(key);
+  settingsStatus.textContent = '✓ API key saved';
+  settingsStatus.className = '';
+  setTimeout(() => {
+    settingsPanel.classList.remove('visible');
+    settingsBtn.classList.remove('open');
+    refitWindow();
+  }, 600);
+}
+
+settingsBtn.addEventListener('click', toggleSettings);
+cancelBtn.addEventListener('click', toggleSettings);
+saveBtn.addEventListener('click', handleSettingsSave);
+apiKeyInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleSettingsSave();
+});
+
+// Auto-open settings on first launch if no key saved
+if (!getStoredApiKey()) {
+  setTimeout(() => toggleSettings(), 500);
+}
 
 // Close button just hides the window (tray keeps the app alive)
 closeBtn.addEventListener('click', () => appWindow.hide());
@@ -70,7 +135,9 @@ async function stopAndTranscribe() {
   invoke('set_tray_recording', { recording: false }).catch(() => {});
 
   try {
-    const transcript = await invoke('stop_transcribe');
+    const storedKey = getStoredApiKey();
+    const args = storedKey ? { api_key: storedKey } : {};
+    const transcript = await invoke('stop_transcribe', args);
     console.log('[vibe-voice] transcript:', transcript);
 
     if (!transcript || !transcript.trim()) { setStatus('idle'); return; }
@@ -132,12 +199,12 @@ setStatus('idle');
 console.log('[vibe-voice] ready — tray + global hotkey active');
 
 // ── Auto-fit window height to content ────────────────────────────────────
-// Measure the actual rendered #app height and resize the OS window to match.
-// This eliminates blank space without guessing a fixed pixel value.
-requestAnimationFrame(() => {
+function refitWindow() {
   const h = document.getElementById('app').scrollHeight;
   if (h > 0) {
     const LogicalSize = window.__TAURI__.window.LogicalSize;
     appWindow.setSize(new LogicalSize(340, h)).catch(() => {});
   }
-});
+}
+
+requestAnimationFrame(() => refitWindow());

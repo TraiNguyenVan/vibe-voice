@@ -13,7 +13,10 @@
     <!-- Drag handle — top bar -->
     <div id="titlebar" data-tauri-drag-region>
       <span id="app-name">🎙 Vibe Voice</span>
-      <button id="close-btn" title="Close">✕</button>
+      <div id="titlebar-actions">
+        <button id="settings-btn" title="Settings">⚙</button>
+        <button id="close-btn" title="Close">✕</button>
+      </div>
     </div>
 
     <!-- Main content -->
@@ -39,6 +42,17 @@
         <p id="hint">Ctrl+Space · drag to move</p>
         <p id="transcript"></p>
       </div>
+    </div>
+
+    <!-- Settings panel (hidden by default) -->
+    <div id="settings-panel">
+      <label for="api-key-input">Groq API Key</label>
+      <input id="api-key-input" type="password" placeholder="Paste your Groq API key here…" autocomplete="off" />
+      <div id="settings-actions">
+        <button id="settings-save-btn">Save</button>
+        <button id="settings-cancel-btn">Cancel</button>
+      </div>
+      <p id="settings-status"></p>
     </div>
   </div>
 
