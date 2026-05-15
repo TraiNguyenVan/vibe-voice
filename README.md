@@ -1,8 +1,3 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="">
-  <img alt="Vibe Voice" src="">
-</picture>
-
 # Vibe Voice
 
 > A push-to-talk speech-to-text widget for Linux/Wayland. Hold a button, speak, release — transcript lands in your active window.
@@ -85,7 +80,7 @@ The widget window stays hidden throughout recording — only the tray icon signa
 │                                                      │
 │  start_recording  →  parec (audio)                   │
 │  stop_transcribe  →  Groq API → transcript           │
-│  paste_text       →  wl-copy + ydotool Ctrl+V        │
+│  paste_text       →  wl-copy + ydotool type --file -        │
 │  flash_tray_done  →  tray icon swap (2s)             │
 │  evdev listener   →  global Ctrl+Space hotkey         │
 └──────────────┬──────────────────────┬────────────────┘
@@ -119,6 +114,7 @@ vibe-voice/
 │   │   └── default.json        # Tauri 2 window permissions
 │   ├── Cargo.toml
 │   └── tauri.conf.json
+├── LICENSE                   # MIT license
 ├── .github/workflows/
 │   └── release.yml             # CI: build deb + rpm on tag push
 ├── ydotool-setup.sh            # Fedora one-shot daemon setup
@@ -159,7 +155,7 @@ pnpm run dev       # alias
 |---|---|---|
 | `parec` | `pulseaudio-utils` | Audio recording (PipeWire-compatible) |
 | `wl-copy` | `wl-clipboard` | Wayland clipboard write |
-| `ydotool` | `ydotool` | Evdev key injection for Ctrl+V |
+| `ydotool` | `ydotool` | Types characters into the focused window via evdev |
 | `ydotoold` | (daemon) | Background daemon; user needs `input` group |
 | `pnpm` | — | Node.js package manager |
 | Rust/Cargo | — | Compiling the Tauri backend |
@@ -188,13 +184,13 @@ parec --channels=1 --rate=16000 --format=s16le --file-format=wav /tmp/vibe-voice
 | Recording | Red icon | Recording duration |
 | Done | Green icon | 2 seconds, then reverts to idle |
 
-### Auto-paste Flow
+### Auto-paste Flow (Character-by-Character)
 
-1. `wl-copy` writes transcript to Wayland clipboard
+1. `wl-copy` writes transcript to Wayland clipboard (safety net)
 2. Window hides to return focus to previous app
 3. 300ms wait for compositor to refocus
-4. `ydotool key 29:1 47:1 47:0 29:0` injects Ctrl+V
-5. 150ms wait, window stays hidden
+4. `ydotool type --file -` types each character via evdev (piped stdin)
+5. Window stays hidden after paste
 
 ### Socket Discovery for RPM
 
