@@ -157,3 +157,14 @@ Loaded at startup via `dotenvy::from_path()` pointing to the parent of `src-taur
 1. **Plan**: Identify if the feature requires System UI (Rust) or Visual UI (Vanilla JS)
 2. **Build**: Write the Rust command in `src/lib.rs` → Register it → Call it via `window.__TAURI__.core.invoke` in `main.js`
 3. **Test**: Run `./run.sh` and test locally on your Wayland compositor
+
+---
+
+## Releasing
+
+```bash
+git tag v0.1.0
+git push --tags
+```
+
+Pushing a tag `v*` triggers `.github/workflows/release.yml` which builds `.deb` + `.rpm` and publishes them to GitHub Releases.
