@@ -201,20 +201,6 @@ When launched from a `.desktop` file, `YDOTOOL_SOCKET` isn't set. The `find_ydot
 
 ---
 
-## CI/CD
-
-Pushing a tag `v*` triggers the [release workflow](.github/workflows/release.yml) which:
-1. Sets up Rust + Node + system dependencies
-2. Builds `.deb` and `.rpm` packages
-3. Publishes them to [GitHub Releases](https://github.com/TraiNguyenVan/vibe-voice/releases)
-
-```bash
-git tag v0.1.0
-git push --tags
-```
-
----
-
 ## License
 
 MIT
