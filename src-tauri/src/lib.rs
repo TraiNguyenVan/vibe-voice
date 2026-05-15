@@ -36,7 +36,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn stop_transcribe(
     handle: State<'_, RecordingHandle>,
     env_key: State<'_, ApiKey>,
