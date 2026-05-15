@@ -36,6 +36,15 @@ vibe-voice/
 
 ---
 
+## Running
+
+```bash
+./run.sh          # same as: pnpm tauri dev
+pnpm run dev      # alias
+```
+
+---
+
 ## Critical Gotchas
 
 ### 1. No Bundler — Use `window.__TAURI__` Globals
@@ -89,14 +98,14 @@ window.addEventListener('keyup', e => {
 });
 ```
 
-### 6. Auto-paste Requires Window Hide + Delay + Socket Discovery
+### 6. Auto-paste Types Character-by-Character via ydotool
 
-For ydotool Ctrl+V to land in the previously focused window:
-1. `wl-copy` the text first
+The paste flow types the transcript character-by-character using `ydotool type --file -` with piped stdin:
+1. `wl-copy` the text to clipboard (safety net)
 2. `window.hide()` — gives focus back to previous window
 3. Sleep 300ms — compositor needs time to re-focus
-4. `ydotool key 29:1 47:1 47:0 29:0` — evdev key codes (29=LCtrl, 47=V)
-5. Sleep 150ms then `window.show()` + `window.set_focus()`
+4. `ydotool type --file -` — pipes text through stdin, types each char via evdev
+5. Window stays hidden after paste
 
 ydotool requires the daemon (`ydotoold`) to be running and user in `input` group.
 
@@ -137,6 +146,14 @@ Loaded at startup via `dotenvy::from_path()` pointing to the parent of `src-taur
 |---|---|---|
 | `start_recording` | `() → Result<(), String>` | Spawns `parec`, writes to `/tmp/vibe-voice-rec.wav` |
 | `stop_transcribe` | `(api_key?: String) → Result<String, String>` | Kills parec, sends WAV to Groq, returns transcript |
-| `paste_text` | `(text: String, window: WebviewWindow) → Result<bool, String>` | wl-copy + hide + ydotool Ctrl+V + show |
+| `paste_text` | `(text: String, window: WebviewWindow) → Result<bool, String>` | wl-copy + hide + ydotool type --file - (character-by-character) |
 | `set_tray_recording` | `(recording: bool) → Result<(), String>` | Swaps tray icon between idle/recording |
 | `flash_tray_done` | `() → Result<(), String>` | Shows green done icon for 2s then reverts to idle |
+
+---
+
+## Workflow Summary
+
+1. **Plan**: Identify if the feature requires System UI (Rust) or Visual UI (Vanilla JS)
+2. **Build**: Write the Rust command in `src/lib.rs` → Register it → Call it via `window.__TAURI__.core.invoke` in `main.js`
+3. **Test**: Run `./run.sh` and test locally on your Wayland compositor
