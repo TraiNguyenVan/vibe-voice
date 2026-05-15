@@ -58,7 +58,7 @@ function handleSettingsSave() {
     return;
   }
   saveApiKey(key);
-  settingsStatus.textContent = '✓ API key saved';
+  settingsStatus.textContent = 'API key saved';
   settingsStatus.className = '';
   setTimeout(() => {
     settingsPanel.classList.remove('visible');
@@ -84,11 +84,11 @@ closeBtn.addEventListener('click', () => appWindow.hide());
 
 const STATUS = {
   idle:      { text: 'Hold to record',      cls: '' },
-  recording: { text: 'Recording…',          cls: 'status-recording' },
-  thinking:  { text: 'Transcribing…',       cls: 'status-thinking' },
-  done:      { text: '✓ Pasted!',            cls: 'status-done' },
-  copied:    { text: '📋 Copied — Ctrl+V',  cls: 'status-copied' },
-  short:     { text: 'Too short — retry',   cls: 'status-error' },
+  recording: { text: 'Recording\u2026',     cls: 'status-recording' },
+  thinking:  { text: 'Transcribing\u2026',  cls: 'status-thinking' },
+  done:      { text: 'Pasted!',             cls: 'status-done' },
+  copied:    { text: 'Copied \u2014 Ctrl+V', cls: 'status-copied' },
+  short:     { text: 'Too short \u2014 retry', cls: 'status-error' },
   error:     { text: 'Error',               cls: 'status-error' },
 };
 
@@ -101,8 +101,8 @@ function setStatus(key) {
 
 function showTranscript(text) {
   if (!text) { transcriptEl.classList.remove('visible'); return; }
-  const preview = text.length > 80 ? text.slice(0, 77) + '…' : text;
-  transcriptEl.textContent = `"${preview}"`;
+  const preview = text.length > 80 ? text.slice(0, 77) + '\u2026' : text;
+  transcriptEl.textContent = `\u201c${preview}\u201d`;
   transcriptEl.classList.add('visible');
 }
 
@@ -115,7 +115,6 @@ async function startRecording() {
     micWrap.classList.add('recording');
     transcriptEl.classList.remove('visible');
     setStatus('recording');
-    // Sync tray icon to recording state
     invoke('set_tray_recording', { recording: true }).catch(() => {});
   } catch (err) {
     console.error('[vibe-voice] start_recording error:', err);
@@ -131,7 +130,6 @@ async function stopAndTranscribe() {
   micBtn.classList.remove('recording');
   micWrap.classList.remove('recording');
   setStatus('thinking');
-  // Sync tray icon back to idle
   invoke('set_tray_recording', { recording: false }).catch(() => {});
 
   try {
@@ -167,8 +165,6 @@ micBtn.addEventListener('mousedown', e => { e.preventDefault(); startRecording()
 window.addEventListener('mouseup',   ()  => { if (isRecording) stopAndTranscribe(); });
 
 // ── Ctrl+Space hold-to-talk (window-local) ────────────────────────────────
-// This fires when the vibe-voice window is focused.
-// The global hotkey (evdev) fires even when the window is NOT focused.
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && e.ctrlKey && !e.repeat) {
     e.preventDefault();
@@ -183,8 +179,6 @@ window.addEventListener('keyup', e => {
 });
 
 // ── Global Ctrl+Space PTT (evdev via Rust background thread) ─────────────
-// These events are emitted by the Rust evdev listener — works on any Wayland compositor
-// even when this window has no focus.
 listen('global-ptt-start', () => {
   console.log('[vibe-voice] global PTT start');
   startRecording();
@@ -197,7 +191,8 @@ listen('global-ptt-stop', () => {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 setStatus('idle');
-console.log('[vibe-voice] ready — tray + global hotkey active');
+lucide.createIcons();
+console.log('[vibe-voice] ready \u2014 tray + global hotkey active');
 
 // ── Auto-fit window height to content ────────────────────────────────────
 function refitWindow() {

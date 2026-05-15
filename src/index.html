@@ -5,49 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vibe Voice</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
   <div id="app">
-    <!-- Drag handle — top bar -->
     <div id="titlebar" data-tauri-drag-region>
-      <span id="app-name">🎙 Vibe Voice</span>
+      <div id="app-name">
+        <span id="tb-dot"></span>
+        <span>Vibe Voice</span>
+      </div>
       <div id="titlebar-actions">
-        <button id="settings-btn" title="Settings">⚙</button>
-        <button id="close-btn" title="Close">✕</button>
+        <button id="settings-btn" title="Settings" class="tb-btn">
+          <i data-lucide="settings"></i>
+        </button>
+        <button id="close-btn" title="Close" class="tb-btn">
+          <i data-lucide="x"></i>
+        </button>
       </div>
     </div>
 
-    <!-- Main content -->
     <div id="content">
-      <!-- Mic button -->
       <div id="mic-wrap">
         <button id="mic-btn" title="Hold to record">
-          <svg id="mic-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="9" y="2" width="6" height="11" rx="3" fill="currentColor"/>
-            <path d="M5 10a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <!-- Ripple rings (shown while recording) -->
-          <span class="ring ring-1"></span>
-          <span class="ring ring-2"></span>
+          <i data-lucide="mic" id="mic-icon"></i>
         </button>
+        <div id="waveform">
+          <span class="wave"></span>
+          <span class="wave"></span>
+          <span class="wave"></span>
+          <span class="wave"></span>
+          <span class="wave"></span>
+        </div>
       </div>
 
-      <!-- Status + transcript -->
       <div id="info">
-        <p id="status">Hold to record</p>
+        <div id="status-row">
+          <span id="status-icons">
+            <i data-lucide="mic" class="si si-idle"></i>
+            <i data-lucide="radio" class="si si-recording"></i>
+            <i data-lucide="circle-dashed" class="si si-thinking"></i>
+            <i data-lucide="check-circle" class="si si-done"></i>
+            <i data-lucide="clipboard" class="si si-copied"></i>
+            <i data-lucide="alert-circle" class="si si-error"></i>
+          </span>
+          <p id="status">Hold to record</p>
+        </div>
         <p id="hint">Ctrl+Space · drag to move</p>
         <p id="transcript"></p>
       </div>
     </div>
 
-    <!-- Settings panel (hidden by default) -->
     <div id="settings-panel">
       <label for="api-key-input">Groq API Key</label>
-      <input id="api-key-input" type="password" placeholder="Paste your Groq API key here…" autocomplete="off" />
+      <div id="api-key-wrap">
+        <i data-lucide="key-round" class="input-icon"></i>
+        <input id="api-key-input" type="password" placeholder="gsk_..." autocomplete="off" />
+      </div>
       <div id="settings-actions">
         <button id="settings-save-btn">Save</button>
         <button id="settings-cancel-btn">Cancel</button>

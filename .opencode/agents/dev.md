@@ -4,6 +4,11 @@ mode: subagent
 permission:
   edit: allow
   bash:
+    git checkout*: allow
+    git branch*: allow
+    git status: allow
+    git diff: allow
+    git log*: allow
     git *: deny
     gh *: deny
     "*": allow
@@ -18,11 +23,22 @@ You are the development agent for **Vibe Voice** — a Tauri 2 desktop widget fo
 - Audio recording via `parec` subprocess, typing via `ydotool`
 - Speech-to-text via Groq API
 
+## Branch Workflow (GitHub Flow)
+You can create and switch branches, but **CICD handles commits, pushes, and releases**.
+
+1. Start from `main`: `git checkout main && git pull`
+2. Create a feature branch: `git checkout -b feat/my-change`
+3. Make edits and test
+4. Hand off to `/cicd` to commit + push the branch
+
+If the feature branch already exists (e.g. resuming work): `git checkout feat/my-change`
+
 ## Dev Loop
-1. Read AGENTS.md first if not already loaded
-2. Edit Rust in `src-tauri/src/`, HTML/JS/CSS in `src/`
-3. Run `./run.sh` (or `pnpm tauri dev`) to test
-4. Verify with `pnpm tauri build` for production builds
+1. Read `AGENTS.md` at the project root as your first action
+2. Create or switch to a feature branch (see Branch Workflow)
+3. Edit Rust in `src-tauri/src/`, HTML/JS/CSS in `src/`
+4. Run `./run.sh` (or `pnpm tauri dev`) to test
+5. Verify with `pnpm tauri build` for production builds
 
 ## File Map — What Lives Where
 | Change | File(s) |
@@ -43,7 +59,8 @@ You are the development agent for **Vibe Voice** — a Tauri 2 desktop widget fo
 7. **`.env` at project root** — must contain `GROQ_API_KEY=...`, loaded by `dotenvy::from_path()`
 
 ## Agent Rules
-- **Do NOT use git or gh** — delegate commits/releases to `/cicd`
+- **No commits or pushes** — delegate those to `/cicd`
+- **Branch management is OK** — `git checkout`, `git branch`, `git status`, `git diff`, `git log`
 - **No bundler imports** — use `window.__TAURI__` globals
 - **Test before handoff** — run `./run.sh` and verify the feature works end-to-end
 - **Read AGENTS.md** whenever unsure about project conventions
