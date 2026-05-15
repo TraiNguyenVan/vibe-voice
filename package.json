@@ -4,7 +4,8 @@
   "description": "Push-to-talk speech-to-text powered by Groq Whisper",
   "scripts": {
     "dev": "tauri dev",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "setup": "bash ydotool-setup.sh"
   },
   "packageManager": "pnpm@10.0.0",
   "devDependencies": {

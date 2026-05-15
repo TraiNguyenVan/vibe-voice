@@ -7,7 +7,6 @@ Project-specific knowledge for AI agents working on this codebase.
 ## What This Is
 
 A Tauri 2 desktop widget for push-to-talk speech-to-text on Linux/Wayland.
-- Hold mic button (or Ctrl+Space) → records audio → sends to Groq Whisper → pastes result into focused window
 - Stack: Rust backend + vanilla HTML/JS frontend (no bundler)
 - Window: 340×160px, always-on-top, transparent, no decorations
 
@@ -31,19 +30,9 @@ vibe-voice/
 │   └── tauri.conf.json
 ├── .env                    # GROQ_API_KEY=... (not committed)
 ├── run.sh                  # ./run.sh → pnpm tauri dev
+├── ydotool-setup.sh        # One-shot ydotool/daemon installer for Fedora
 └── package.json
 ```
-
----
-
-## Running
-
-```bash
-./run.sh          # same as: pnpm tauri dev
-pnpm run dev      # alias
-```
-
-Requires: `pnpm`, Rust/Cargo, `parec` (pulseaudio-utils), `wl-clipboard`, `ydotool`
 
 ---
 
@@ -147,23 +136,7 @@ Loaded at startup via `dotenvy::from_path()` pointing to the parent of `src-taur
 | Command | Signature | Description |
 |---|---|---|
 | `start_recording` | `() → Result<(), String>` | Spawns `parec`, writes to `/tmp/vibe-voice-rec.wav` |
-| `stop_transcribe` | `() → Result<String, String>` | Kills parec, sends WAV to Groq, returns transcript |
+| `stop_transcribe` | `(api_key?: String) → Result<String, String>` | Kills parec, sends WAV to Groq, returns transcript |
 | `paste_text` | `(text: String, window: WebviewWindow) → Result<bool, String>` | wl-copy + hide + ydotool Ctrl+V + show |
-
----
-
-## System Dependencies
-
-| Tool | Package | Purpose |
-|---|---|---|
-| `parec` | `pulseaudio-utils` | Audio recording (PipeWire-pulse compatible) |
-| `wl-copy` | `wl-clipboard` | Wayland clipboard write |
-| `ydotool` | `ydotool` | Evdev-level key injection for Ctrl+V |
-| `ydotoold` | (daemon) | Must be running; user needs `input` group |
-
-```bash
-# Check all deps:
-which parec wl-copy ydotool
-groups | grep input
-systemctl --user status ydotoold  # or check if running
-```
+| `set_tray_recording` | `(recording: bool) → Result<(), String>` | Swaps tray icon between idle/recording |
+| `flash_tray_done` | `() → Result<(), String>` | Shows green done icon for 2s then reverts to idle |
