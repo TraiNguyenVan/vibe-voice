@@ -1,6 +1,6 @@
 {
   "name": "vibe-voice",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Push-to-talk speech-to-text powered by Groq Whisper",
   "scripts": {
     "dev": "tauri dev",
