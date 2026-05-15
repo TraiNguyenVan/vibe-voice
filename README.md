@@ -18,13 +18,7 @@ bash ydotool-setup.sh
 sudo dnf install ./vibe-voice-*.x86_64.rpm
 ```
 
-### Debian/Ubuntu (DEB)
-
-```bash
-sudo apt install ./vibe-voice_*.deb
-```
-
-Dependencies you'll need separately: `parec` (pulseaudio-utils), `wl-clipboard`, `ydotool`
+Dependencies: `parec` (pulseaudio-utils), `wl-clipboard`, `ydotool`
 
 ---
 
@@ -57,7 +51,7 @@ pnpm install
 pnpm tauri build
 ```
 
-Output: `src-tauri/target/release/bundle/deb/` and `rpm/`
+Output: `src-tauri/target/release/bundle/rpm/`
 
 ---
 

@@ -39,7 +39,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Tauri app
-        run: pnpm tauri build --bundles deb,rpm
+        run: pnpm tauri build --bundles rpm
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
@@ -48,7 +48,6 @@ jobs:
         with:
           name: vibe-voice-${{ github.sha }}
           path: |
-            src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
 
       - name: Publish release
@@ -56,6 +55,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
           generate_release_notes: true
