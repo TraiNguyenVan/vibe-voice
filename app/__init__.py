@@ -1,1 +1,0 @@
-# Vibe Voice app package
