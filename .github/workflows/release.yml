@@ -2,7 +2,6 @@ name: Build & Release
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -30,8 +29,11 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             librsvg2-dev \
+            libevdev-dev \
+            libssl-dev \
+            pkg-config \
             patchelf \
             rpm
 
@@ -39,15 +41,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Tauri app
-        run: pnpm tauri build --bundles rpm
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: pnpm tauri build --bundles deb,rpm
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vibe-voice-${{ github.sha }}
           path: |
+            src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
 
       - name: Publish release
@@ -55,5 +56,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
           generate_release_notes: true
