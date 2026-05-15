@@ -86,7 +86,9 @@ async fn stop_transcribe(
     if !status.is_success() {
         return Err(format!("Groq {status}: {body}"));
     }
-    Ok(body.trim().to_string())
+    let transcript = body.trim().to_string();
+    println!("[vibe-voice] transcript: {transcript}");
+    Ok(transcript)
 }
 
 /// Discover the ydotoold socket path. The daemon may have been started with
@@ -176,7 +178,7 @@ async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, 
 
     let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
     ydotool_cmd
-        .args(["type", "--file", "-"])
+        .args(["type", "--key-delay", "1", "--file", "-"])
         .stdin(std::process::Stdio::piped());
 
     if let Some(socket_path) = find_ydotool_socket() {
