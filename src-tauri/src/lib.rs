@@ -97,8 +97,6 @@ async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, 
         .args(["key", "29:1", "47:1", "47:0", "29:0"])
         .status().map(|s| s.success()).unwrap_or(false);
     std::thread::sleep(std::time::Duration::from_millis(150));
-    window.show().ok();
-    window.set_focus().ok();
     Ok(ok)
 }
 
@@ -335,7 +333,6 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
 
                                 if both_down && !was_active {
                                     ptt_active.store(true, Ordering::Relaxed);
-                                    show_window(&app);
                                     app.emit("global-ptt-start", ()).ok();
                                     eprintln!("[vibe-voice] evdev: Ctrl+Space → PTT start");
                                 } else if !both_down && was_active {

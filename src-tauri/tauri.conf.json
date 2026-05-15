@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Vibe Voice",
+  "productName": "vibe-voice",
   "version": "0.1.0",
   "identifier": "com.vibeioice.vibeioice",
   "build": {
@@ -20,7 +20,7 @@
         "skipTaskbar": true,
         "transparent": true,
         "center": true,
-        "visible": true
+        "visible": false
       }
     ],
     "security": {
