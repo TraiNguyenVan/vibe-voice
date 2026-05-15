@@ -88,14 +88,105 @@ async fn stop_transcribe(
     Ok(body.trim().to_string())
 }
 
+/// Discover the ydotoold socket path. The daemon may have been started with
+/// a custom `--socket-path`, so the env var `YDOTOOL_SOCKET` isn't always set
+/// (especially when the app is launched from a .desktop file / RPM install).
+fn find_ydotool_socket() -> Option<String> {
+    // 1. Check the environment variable first (set in dev terminal sessions)
+    if let Ok(path) = std::env::var("YDOTOOL_SOCKET") {
+        if std::path::Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. Probe the ydotoold process cmdline for --socket-path
+    if let Ok(entries) = std::fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            let cmdline_path = entry.path().join("cmdline");
+            if let Ok(cmdline) = std::fs::read_to_string(&cmdline_path) {
+                if cmdline.contains("ydotoold") {
+                    // cmdline uses \0 as separator
+                    let parts: Vec<&str> = cmdline.split('\0').collect();
+                    for part in &parts {
+                        if let Some(sock) = part.strip_prefix("--socket-path=") {
+                            if std::path::Path::new(sock).exists() {
+                                return Some(sock.to_string());
+                            }
+                        }
+                    }
+                    // Also check the next arg after --socket-path
+                    for (i, part) in parts.iter().enumerate() {
+                        if *part == "--socket-path" {
+                            if let Some(sock) = parts.get(i + 1) {
+                                if std::path::Path::new(sock).exists() {
+                                    return Some(sock.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Common socket locations
+    let uid = unsafe { libc::getuid() };
+    let candidates = [
+        "/tmp/.ydotool_socket".to_string(),
+        format!("/run/user/{}/.ydotool_socket", uid),
+        "/run/user/1000/.ydotool_socket".to_string(),
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Some(path.clone());
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, String> {
-    Command::new("/usr/bin/wl-copy").arg(&text).status().map_err(|e| e.to_string())?;
+    // ── Step 1: Copy text to Wayland clipboard ──
+    let wl_status = Command::new("/usr/bin/wl-copy")
+        .arg(&text)
+        .status()
+        .map_err(|e| format!("wl-copy failed to launch: {e}"))?;
+
+    if !wl_status.success() {
+        eprintln!("[vibe-voice] wl-copy exited with status: {}", wl_status);
+        return Err(format!("wl-copy failed with status: {}", wl_status));
+    }
+
+    // ── Step 2: Hide window so previous window regains focus ──
     window.hide().ok();
     std::thread::sleep(std::time::Duration::from_millis(300));
-    let ok = Command::new("/usr/bin/ydotool")
-        .args(["key", "29:1", "47:1", "47:0", "29:0"])
-        .status().map(|s| s.success()).unwrap_or(false);
+
+    // ── Step 3: Inject Ctrl+V via ydotool ──
+    let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
+    ydotool_cmd.args(["key", "29:1", "47:1", "47:0", "29:0"]);
+
+    // Ensure YDOTOOL_SOCKET is set so ydotool can find the daemon
+    if let Some(socket_path) = find_ydotool_socket() {
+        eprintln!("[vibe-voice] using ydotool socket: {socket_path}");
+        ydotool_cmd.env("YDOTOOL_SOCKET", &socket_path);
+    } else {
+        eprintln!("[vibe-voice] WARNING: could not find ydotool socket — paste may fail");
+    }
+
+    let ok = match ydotool_cmd.status() {
+        Ok(status) => {
+            if !status.success() {
+                eprintln!("[vibe-voice] ydotool exited with status: {status}");
+            }
+            status.success()
+        }
+        Err(e) => {
+            eprintln!("[vibe-voice] ydotool failed to launch: {e}");
+            false
+        }
+    };
+
     std::thread::sleep(std::time::Duration::from_millis(150));
     Ok(ok)
 }

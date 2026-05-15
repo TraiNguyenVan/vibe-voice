@@ -4162,6 +4162,7 @@ version = "0.1.0"
 dependencies = [
  "dotenvy",
  "evdev",
+ "libc",
  "png 0.17.16",
  "reqwest 0.12.28",
  "serde",

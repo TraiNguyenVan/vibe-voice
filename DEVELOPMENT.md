@@ -85,6 +85,8 @@ Developing desktop widgets for Wayland (especially Hyprland) comes with unique q
    - Wait ~300ms for the compositor to apply focus.
    - Inject `Ctrl+V` using `ydotool`.
    - Restore the widget (`window.show()`).
+   
+   > **RPM builds:** `ydotool` requires the `YDOTOOL_SOCKET` env var to find the daemon. When launched from a `.desktop` file this var is typically missing. The `find_ydotool_socket()` helper in `lib.rs` auto-discovers the socket via `/proc` scanning + common path probing.
 4. **Transparency**: Tauri 2 does not use `tauri::Color`. To achieve a transparent window, ensure `"transparent": true` is set in `tauri.conf.json` and use `background: transparent;` in your `style.css`.
 
 ---

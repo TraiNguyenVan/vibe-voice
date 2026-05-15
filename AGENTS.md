@@ -100,7 +100,7 @@ window.addEventListener('keyup', e => {
 });
 ```
 
-### 6. Auto-paste Requires Window Hide + Delay
+### 6. Auto-paste Requires Window Hide + Delay + Socket Discovery
 
 For ydotool Ctrl+V to land in the previously focused window:
 1. `wl-copy` the text first
@@ -110,6 +110,13 @@ For ydotool Ctrl+V to land in the previously focused window:
 5. Sleep 150ms then `window.show()` + `window.set_focus()`
 
 ydotool requires the daemon (`ydotoold`) to be running and user in `input` group.
+
+**RPM / Production gotcha:** When launched from a `.desktop` file (e.g. RPM install),
+the `YDOTOOL_SOCKET` env var is often missing. ydotool then defaults to
+`/run/user/UID/.ydotool_socket`, which won't exist if the daemon was started with
+`--socket-path=/tmp/.ydotool_socket`. The `find_ydotool_socket()` helper in `lib.rs`
+auto-discovers the socket by: (1) checking `$YDOTOOL_SOCKET`, (2) scanning
+`/proc/*/cmdline` for the ydotoold `--socket-path` flag, (3) probing common paths.
 
 ### 7. `tauri::Color` Does Not Exist in Tauri 2
 
