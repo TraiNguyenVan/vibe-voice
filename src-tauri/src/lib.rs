@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::{Mutex, Arc, atomic::{AtomicBool, Ordering}};
 use std::process::Command;
 use reqwest::multipart;
@@ -145,41 +146,58 @@ fn find_ydotool_socket() -> Option<String> {
     None
 }
 
+fn sanitize_for_typing(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\n' | '\r' => ' ',
+            c if c.is_control() => ' ',
+            other => other,
+        })
+        .collect()
+}
+
 #[tauri::command]
 async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, String> {
-    // ── Step 1: Copy text to Wayland clipboard ──
-    let wl_status = Command::new("/usr/bin/wl-copy")
+    // ── Step 1: Copy text to Wayland clipboard (safety net) ──
+    if let Err(e) = Command::new("/usr/bin/wl-copy")
         .arg(&text)
         .status()
-        .map_err(|e| format!("wl-copy failed to launch: {e}"))?;
-
-    if !wl_status.success() {
-        eprintln!("[vibe-voice] wl-copy exited with status: {}", wl_status);
-        return Err(format!("wl-copy failed with status: {}", wl_status));
+    {
+        eprintln!("[vibe-voice] wl-copy failed to launch: {e}");
     }
 
     // ── Step 2: Hide window so previous window regains focus ──
     window.hide().ok();
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    // ── Step 3: Inject Ctrl+V via ydotool ──
-    let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
-    ydotool_cmd.args(["key", "29:1", "47:1", "47:0", "29:0"]);
+    // ── Step 3: Type transcript character-by-character via ydotool ──
+    let sanitized = sanitize_for_typing(&text);
+    eprintln!("[vibe-voice] typing {} chars", sanitized.len());
 
-    // Ensure YDOTOOL_SOCKET is set so ydotool can find the daemon
+    let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
+    ydotool_cmd
+        .args(["type", "--file", "-"])
+        .stdin(std::process::Stdio::piped());
+
     if let Some(socket_path) = find_ydotool_socket() {
         eprintln!("[vibe-voice] using ydotool socket: {socket_path}");
         ydotool_cmd.env("YDOTOOL_SOCKET", &socket_path);
     } else {
-        eprintln!("[vibe-voice] WARNING: could not find ydotool socket — paste may fail");
+        eprintln!("[vibe-voice] WARNING: could not find ydotool socket — typing may fail");
     }
 
-    let ok = match ydotool_cmd.status() {
-        Ok(status) => {
-            if !status.success() {
-                eprintln!("[vibe-voice] ydotool exited with status: {status}");
+    let ok = match ydotool_cmd.spawn() {
+        Ok(mut child) => {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(sanitized.as_bytes());
             }
-            status.success()
+            match child.wait() {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    eprintln!("[vibe-voice] ydotool wait failed: {e}");
+                    false
+                }
+            }
         }
         Err(e) => {
             eprintln!("[vibe-voice] ydotool failed to launch: {e}");
