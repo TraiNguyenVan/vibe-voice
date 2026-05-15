@@ -25,7 +25,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
 
     let _ = std::fs::remove_file(TMP_WAV);
 
-    let child = Command::new("parec")
+    let child = Command::new("/usr/bin/parec")
         .args(["--channels=1", "--rate=16000", "--format=s16le",
                "--file-format=wav", "--latency-msec=50", TMP_WAV])
         .spawn()
@@ -90,10 +90,10 @@ async fn stop_transcribe(
 
 #[tauri::command]
 async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, String> {
-    Command::new("wl-copy").arg(&text).status().map_err(|e| e.to_string())?;
+    Command::new("/usr/bin/wl-copy").arg(&text).status().map_err(|e| e.to_string())?;
     window.hide().ok();
     std::thread::sleep(std::time::Duration::from_millis(300));
-    let ok = Command::new("ydotool")
+    let ok = Command::new("/usr/bin/ydotool")
         .args(["key", "29:1", "47:1", "47:0", "29:0"])
         .status().map(|s| s.success()).unwrap_or(false);
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -109,7 +109,7 @@ fn set_tray_recording(
 ) -> Result<(), String> {
     let guard = tray_handle.0.lock().unwrap();
     if let Some(tray) = guard.as_ref() {
-        let icon = load_tray_icon(&app, recording)?;
+        let icon = load_tray_icon(&app, if recording { "recording" } else { "idle" })?;
         tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
         tray.set_tooltip(Some(if recording {
             "Vibe Voice — Recording…"
@@ -120,11 +120,41 @@ fn set_tray_recording(
     Ok(())
 }
 
+#[tauri::command]
+fn flash_tray_done(
+    tray_handle: State<'_, TrayHandle>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let guard = tray_handle.0.lock().unwrap();
+    if let Some(tray) = guard.as_ref() {
+        let done_icon = load_tray_icon(&app, "done")?;
+        tray.set_icon(Some(done_icon.clone())).map_err(|e| e.to_string())?;
+        tray.set_tooltip(Some("Vibe Voice — ✓ Copied to clipboard")).ok();
+    }
+    drop(guard);
+
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        if let Some(tray) = app.state::<TrayHandle>().0.lock().unwrap().as_ref() {
+            if let Ok(idle_icon) = load_tray_icon(&app, "idle") {
+                tray.set_icon(Some(idle_icon)).ok();
+                tray.set_tooltip(Some("Vibe Voice — Hold Ctrl+Space to record")).ok();
+            }
+        }
+    });
+
+    Ok(())
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Load a PNG file from the icons directory and convert it into a Tauri Image.
-fn load_tray_icon(app: &AppHandle, recording: bool) -> Result<Image<'static>, String> {
-    let filename = if recording { "tray-recording.png" } else { "tray-idle.png" };
+fn load_tray_icon(app: &AppHandle, state: &str) -> Result<Image<'static>, String> {
+    let filename = match state {
+        "recording" => "tray-recording.png",
+        "done" => "tray-done.png",
+        _ => "tray-idle.png",
+    };
 
     // During `tauri dev` the resource_dir is the project root; during production it's
     // the bundle resources dir. We try a few candidate paths.
@@ -193,7 +223,7 @@ fn setup_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::er
         .build()?;
 
     // Try to load the custom icon, fall back gracefully
-    let icon = load_tray_icon(&app.handle(), false).unwrap_or_else(|e| {
+    let icon = load_tray_icon(&app.handle(), "idle").unwrap_or_else(|e| {
         eprintln!("[vibe-voice] tray icon load failed ({e}), using fallback");
         // 1×1 transparent RGBA pixel
         Image::new_owned(vec![0u8, 0, 0, 0], 1, 1)
@@ -390,6 +420,7 @@ pub fn run() {
             stop_transcribe,
             paste_text,
             set_tray_recording,
+            flash_tray_done,
         ])
         .setup(|app| {
             // System tray

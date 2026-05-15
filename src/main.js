@@ -145,6 +145,7 @@ async function stopAndTranscribe() {
     showTranscript(transcript);
 
     const pasted = await invoke('paste_text', { text: transcript });
+    invoke('flash_tray_done').catch(() => {});
     setStatus(pasted ? 'done' : 'copied');
 
     setTimeout(() => {

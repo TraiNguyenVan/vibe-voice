@@ -38,7 +38,8 @@
     ],
     "resources": {
       "icons/tray-idle.png": "icons/tray-idle.png",
-      "icons/tray-recording.png": "icons/tray-recording.png"
+      "icons/tray-recording.png": "icons/tray-recording.png",
+      "icons/tray-done.png": "icons/tray-done.png"
     }
   }
 }
