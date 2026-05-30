@@ -52,6 +52,16 @@ html, body {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+#app.exiting {
+  animation: fadeOut 0.26s var(--ease) forwards;
+  pointer-events: none;
+}
+
 /* ── Titlebar ──────────────────────────────────────────── */
 
 #titlebar {

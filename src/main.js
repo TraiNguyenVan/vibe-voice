@@ -202,21 +202,25 @@ async function stopAndTranscribe() {
 
     showTranscript(transcript);
 
-    const pasted = await invoke('paste_text', { 
+    // ── Exit animation: play before window closes and typing begins ──
+    app.classList.add('exiting');
+    await new Promise(resolve => setTimeout(resolve, 260));
+
+    const pasted = await invoke('paste_text', {
       text: transcript,
       autoType: getStoredAutoType(),
       keyHold: getStoredKeyHold()
     });
-    invoke('flash_tray_done').catch(() => {});
-    setStatus(pasted ? 'done' : 'copied');
 
-    setTimeout(() => {
-      setStatus('idle');
-      setTimeout(() => transcriptEl.classList.remove('visible'), 400);
-    }, 3000);
+    // Window is now hidden. Clean up state for next activation.
+    app.classList.remove('exiting');
+    transcriptEl.classList.remove('visible');
+    setStatus('idle');
+    invoke('flash_tray_done').catch(() => {});
 
   } catch (err) {
     console.error('[vibe-voice] stop_transcribe error:', err);
+    app.classList.remove('exiting');
     const msg = String(err);
     if (msg.includes('too short')) { setStatus('short'); }
     else { setStatus('error'); showTranscript(msg); }
