@@ -1,21 +1,21 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:         rgba(16, 12, 22, 0.78);
-  --surface:    rgba(25, 20, 35, 0.5);
-  --border:     rgba(255, 255, 255, 0.06);
-  --border-hi:  rgba(139, 108, 247, 0.12);
+  --bg:         #100c16;
+  --surface:    #161020;
+  --border:     rgba(255, 255, 255, 0.08);
+  --border-hi:  rgba(139, 108, 247, 0.18);
   --accent:     #8b6cf7;
   --accent-warm: #c084fc;
-  --accent-dim: rgba(139, 108, 247, 0.15);
+  --accent-dim: rgba(139, 108, 247, 0.20);
   --red:        #e86060;
-  --red-dim:    rgba(232, 96, 96, 0.2);
+  --red-dim:    rgba(232, 96, 96, 0.25);
   --green:      #5ad88c;
-  --green-dim:  rgba(90, 216, 140, 0.2);
+  --green-dim:  rgba(90, 216, 140, 0.25);
   --orange:     #e09055;
   --text:       #eee8f5;
-  --muted:      #5f5575;
-  --radius:     18px;
+  --muted:      #7a6e8a;
+  --radius:     14px;
   --ease:       cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -23,7 +23,7 @@ html, body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: transparent;
+  background: var(--bg);
   font-family: 'Inter', system-ui, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -34,20 +34,16 @@ html, body {
   width: 340px;
   min-height: 160px;
   height: auto;
-  background: linear-gradient(180deg, var(--bg) 0%, rgba(12, 10, 18, 0.72) 100%);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  background: linear-gradient(180deg, #1a1328 0%, #100c16 100%);
   border-radius: var(--radius);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-hi);
   position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow:
-    0 0 0 1px var(--border-hi),
-    0 8px 40px rgba(0, 0, 0, 0.55),
-    0 2px 8px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.4);
   animation: fadeIn 0.3s var(--ease);
 }
 
@@ -159,12 +155,12 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--surface);
+  background: #161020;
   border-top: 0px solid var(--border);
 }
 
 #settings-panel.visible {
-  max-height: 200px;
+  max-height: 400px;
   opacity: 1;
   padding: 14px 18px 16px;
   border-top-width: 1px;
@@ -509,4 +505,114 @@ html, body {
   40% { transform: translateX(4px); }
   60% { transform: translateX(-3px); }
   80% { transform: translateX(3px); }
+}
+
+/* ── Custom Settings Controls ───────────────────────────── */
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Custom Checkbox Switch (iOS-like) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-hi);
+  border: 1px solid var(--border);
+  transition: .3s var(--ease);
+  border-radius: 18px;
+}
+
+.switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text);
+  transition: .3s var(--ease);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.switch input:checked + .switch-slider {
+  background-color: var(--accent);
+  border-color: var(--accent-warm);
+}
+
+.switch input:checked + .switch-slider:before {
+  transform: translateX(16px);
+}
+
+/* Range Slider */
+.slider-wrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.range-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-hi);
+  outline: none;
+  margin: 8px 0;
+  transition: opacity .2s;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm));
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s var(--ease);
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+#speed-value {
+  font-size: 11px;
+  color: var(--accent-warm);
+  font-weight: 600;
+}
+
+/* Disabled Setting Group state */
+.setting-group.disabled {
+  opacity: 0.35;
+  pointer-events: none;
 }

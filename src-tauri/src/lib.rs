@@ -159,7 +159,12 @@ fn sanitize_for_typing(text: &str) -> String {
 }
 
 #[tauri::command]
-async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, String> {
+async fn paste_text(
+    text: String,
+    auto_type: bool,
+    key_hold: u64,
+    window: tauri::WebviewWindow,
+) -> Result<bool, String> {
     // ── Step 1: Copy text to Wayland clipboard (safety net) ──
     if let Err(e) = Command::new("/usr/bin/wl-copy")
         .arg(&text)
@@ -172,13 +177,18 @@ async fn paste_text(text: String, window: tauri::WebviewWindow) -> Result<bool, 
     window.hide().ok();
     std::thread::sleep(std::time::Duration::from_millis(300));
 
+    if !auto_type {
+        return Ok(false);
+    }
+
     // ── Step 3: Type transcript character-by-character via ydotool ──
     let sanitized = sanitize_for_typing(&text);
-    eprintln!("[vibe-voice] typing {} chars", sanitized.len());
+    eprintln!("[vibe-voice] typing {} chars (delay: {}ms)", sanitized.len(), key_hold);
 
+    let key_hold_str = key_hold.to_string();
     let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
     ydotool_cmd
-        .args(["type", "--key-delay", "1", "--file", "-"])
+        .args(["type", "--key-delay", "1", "--key-hold", &key_hold_str, "--file", "-"])
         .stdin(std::process::Stdio::piped());
 
     if let Some(socket_path) = find_ydotool_socket() {
@@ -292,11 +302,43 @@ fn load_tray_icon(app: &AppHandle, state: &str) -> Result<Image<'static>, String
 
 fn png_to_tauri_image(path: &std::path::Path) -> Result<Image<'static>, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read icon: {e}"))?;
-    let decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().map_err(|e| format!("png decode: {e}"))?;
     let mut buf = vec![0u8; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|e| format!("png frame: {e}"))?;
-    let rgba = buf[..info.buffer_size()].to_vec();
+    let raw = &buf[..info.buffer_size()];
+
+    let rgba = match info.color_type {
+        png::ColorType::Grayscale => {
+            let mut v = Vec::with_capacity(raw.len() * 4);
+            for &g in raw {
+                v.extend_from_slice(&[g, g, g, 255]);
+            }
+            v
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut v = Vec::with_capacity(raw.len() * 2);
+            for chunk in raw.chunks_exact(2) {
+                let g = chunk[0];
+                let a = chunk[1];
+                v.extend_from_slice(&[g, g, g, a]);
+            }
+            v
+        }
+        png::ColorType::Rgb => {
+            let mut v = Vec::with_capacity(raw.len() / 3 * 4);
+            for chunk in raw.chunks_exact(3) {
+                v.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            }
+            v
+        }
+        png::ColorType::Rgba => raw.to_vec(),
+        png::ColorType::Indexed => {
+            return Err("Indexed PNG not supported for tray icon".to_string());
+        }
+    };
+
     Ok(Image::new_owned(rgba, info.width, info.height))
 }
 

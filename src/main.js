@@ -13,6 +13,10 @@ const closeBtn     = document.getElementById('close-btn');
 const settingsBtn  = document.getElementById('settings-btn');
 const settingsPanel = document.getElementById('settings-panel');
 const apiKeyInput  = document.getElementById('api-key-input');
+const autoTypeToggle = document.getElementById('auto-type-toggle');
+const speedSlider  = document.getElementById('speed-slider');
+const speedValue   = document.getElementById('speed-value');
+const speedSettingGroup = document.getElementById('speed-setting-group');
 const saveBtn      = document.getElementById('settings-save-btn');
 const cancelBtn    = document.getElementById('settings-cancel-btn');
 const settingsStatus = document.getElementById('settings-status');
@@ -20,8 +24,10 @@ const app          = document.getElementById('app');
 
 let isRecording = false;
 
-// ── Settings / API Key ──────────────────────────────────────────────────────
+// ── Settings / LocalStorage Keys ─────────────────────────────────────────────
 const STORAGE_KEY = 'vibe-voice-groq-api-key';
+const AUTOTYPE_KEY = 'vibe-voice-auto-type';
+const KEYHOLD_KEY = 'vibe-voice-key-hold';
 
 function getStoredApiKey() {
   return localStorage.getItem(STORAGE_KEY) || '';
@@ -35,11 +41,50 @@ function saveApiKey(key) {
   }
 }
 
+function getStoredAutoType() {
+  const val = localStorage.getItem(AUTOTYPE_KEY);
+  return val === null ? true : val === 'true';
+}
+
+function saveAutoType(enabled) {
+  localStorage.setItem(AUTOTYPE_KEY, String(enabled));
+}
+
+function getStoredKeyHold() {
+  const val = localStorage.getItem(KEYHOLD_KEY);
+  return val === null ? 6 : parseInt(val, 10) || 6;
+}
+
+function saveKeyHold(val) {
+  localStorage.setItem(KEYHOLD_KEY, String(val));
+}
+
+function updateSliderState(enabled) {
+  if (enabled) {
+    speedSettingGroup.classList.remove('disabled');
+  } else {
+    speedSettingGroup.classList.add('disabled');
+  }
+}
+
+function updateSpeedValueLabel(ms) {
+  speedValue.textContent = `${ms} ms`;
+}
+
 function toggleSettings() {
   const open = !settingsPanel.classList.contains('visible');
   if (open) {
     const current = getStoredApiKey();
     apiKeyInput.value = current;
+
+    // Load auto-type & delay settings
+    const autoType = getStoredAutoType();
+    const keyHold = getStoredKeyHold();
+    autoTypeToggle.checked = autoType;
+    speedSlider.value = keyHold;
+    updateSpeedValueLabel(keyHold);
+    updateSliderState(autoType);
+
     settingsStatus.textContent = current ? 'Key saved — ready to go' : '';
     settingsStatus.className = '';
     settingsBtn.classList.add('open');
@@ -47,7 +92,8 @@ function toggleSettings() {
     settingsBtn.classList.remove('open');
   }
   settingsPanel.classList.toggle('visible', open);
-  refitWindow();
+  // Wait for the max-height CSS transition (350ms) to finish before measuring
+  setTimeout(() => refitWindow(), 360);
 }
 
 function handleSettingsSave() {
@@ -58,12 +104,18 @@ function handleSettingsSave() {
     return;
   }
   saveApiKey(key);
-  settingsStatus.textContent = 'API key saved';
+
+  // Save auto-type & delay settings
+  saveAutoType(autoTypeToggle.checked);
+  saveKeyHold(parseInt(speedSlider.value, 10));
+
+  settingsStatus.textContent = 'Settings saved';
   settingsStatus.className = '';
   setTimeout(() => {
     settingsPanel.classList.remove('visible');
     settingsBtn.classList.remove('open');
-    refitWindow();
+    // Wait for the close transition before resizing the window
+    setTimeout(() => refitWindow(), 360);
   }, 600);
 }
 
@@ -72,6 +124,14 @@ cancelBtn.addEventListener('click', toggleSettings);
 saveBtn.addEventListener('click', handleSettingsSave);
 apiKeyInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') handleSettingsSave();
+});
+
+autoTypeToggle.addEventListener('change', e => {
+  updateSliderState(e.target.checked);
+});
+
+speedSlider.addEventListener('input', e => {
+  updateSpeedValueLabel(e.target.value);
 });
 
 // Auto-open settings on first launch if no key saved
@@ -142,7 +202,11 @@ async function stopAndTranscribe() {
 
     showTranscript(transcript);
 
-    const pasted = await invoke('paste_text', { text: transcript });
+    const pasted = await invoke('paste_text', { 
+      text: transcript,
+      autoType: getStoredAutoType(),
+      keyHold: getStoredKeyHold()
+    });
     invoke('flash_tray_done').catch(() => {});
     setStatus(pasted ? 'done' : 'copied');
 

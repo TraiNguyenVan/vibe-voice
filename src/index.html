@@ -63,6 +63,25 @@
         <i data-lucide="key-round" class="input-icon"></i>
         <input id="api-key-input" type="password" placeholder="gsk_..." autocomplete="off" />
       </div>
+
+      <div class="setting-row">
+        <label for="auto-type-toggle">Auto-Type Transcript</label>
+        <label class="switch">
+          <input id="auto-type-toggle" type="checkbox" />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-group" id="speed-setting-group">
+        <div class="setting-row">
+          <label for="speed-slider">Typing Keystroke Delay</label>
+          <span id="speed-value">6 ms</span>
+        </div>
+        <div class="slider-wrap">
+          <input id="speed-slider" type="range" min="1" max="50" value="6" class="range-slider" />
+        </div>
+      </div>
+
       <div id="settings-actions">
         <button id="settings-save-btn">Save</button>
         <button id="settings-cancel-btn">Cancel</button>
