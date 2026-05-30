@@ -77,7 +77,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
     let default_config = device.default_input_config()
         .map_err(|e| format!("Failed to get default input config: {e}"))?;
     
-    let sample_rate = default_config.sample_rate().0;
+    let sample_rate = default_config.sample_rate();
     let channels = default_config.channels();
     let sample_format = default_config.sample_format();
 
@@ -284,16 +284,18 @@ fn sanitize_for_typing(text: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
 extern "system" {
-    #[link(name = "kernel32")]
-    fn GlobalFree(hmem: windows_sys::Win32::Foundation::HGLOBAL) -> windows_sys::Win32::Foundation::HGLOBAL;
+    fn GlobalFree(hmem: isize) -> isize;
 }
+
+#[cfg(target_os = "windows")]
+const CF_UNICODETEXT: u32 = 13;
 
 #[cfg(target_os = "windows")]
 fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{OpenClipboard, EmptyClipboard, SetClipboardData, CloseClipboard};
     use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-    use windows_sys::Win32::UI::WindowsAndMessaging::CF_UNICODETEXT;
 
     unsafe {
         if OpenClipboard(0) == 0 {
@@ -304,20 +306,21 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let size = utf16.len() * 2;
         let handle = GlobalAlloc(GMEM_MOVEABLE, size);
-        if handle == 0 {
+        if handle.is_null() {
             CloseClipboard();
             return Err("GlobalAlloc failed".to_string());
         }
-        let ptr = GlobalLock(handle);
+        let ptr = GlobalLock(handle as isize);
         if ptr.is_null() {
+            GlobalFree(handle as isize);
             CloseClipboard();
             return Err("GlobalLock failed".to_string());
         }
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr as *mut u16, utf16.len());
-        GlobalUnlock(handle);
+        GlobalUnlock(handle as isize);
 
-        if SetClipboardData(CF_UNICODETEXT, handle) == 0 {
-            GlobalFree(handle);
+        if SetClipboardData(CF_UNICODETEXT, handle as isize) == 0 {
+            GlobalFree(handle as isize);
             CloseClipboard();
             return Err("SetClipboardData failed".to_string());
         }
@@ -393,6 +396,7 @@ async fn paste_text(
     key_hold: u64,
     window: tauri::WebviewWindow,
 ) -> Result<bool, String> {
+    let _ = key_hold;
     #[cfg(target_os = "linux")]
     {
         // ── Step 1: Copy text to Wayland clipboard (safety net) ──
