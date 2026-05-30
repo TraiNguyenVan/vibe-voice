@@ -1,5 +1,9 @@
+#[cfg(target_os = "linux")]
 use std::io::Write;
-use std::sync::{Mutex, Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use reqwest::multipart;
 use tauri::{
@@ -42,7 +46,7 @@ fn get_temp_wav_path() -> std::path::PathBuf {
 #[cfg(target_os = "linux")]
 #[tauri::command]
 fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
-    let mut guard = handle.0.lock().unwrap();
+    let mut guard = handle.inner().0.lock().unwrap();
     if guard.is_some() { return Ok(()); }
 
     let wav_path = get_temp_wav_path();
@@ -63,7 +67,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
 fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-    let mut guard = handle.0.lock().unwrap();
+    let mut guard = handle.inner().0.lock().unwrap();
     if guard.is_some() { return Ok(()); }
 
     let host = cpal::default_host();
@@ -151,7 +155,7 @@ async fn stop_transcribe(
 ) -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {
-        let mut guard = handle.0.lock().unwrap();
+        let mut guard = handle.inner().0.lock().unwrap();
         if let Some(mut child) = guard.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -159,7 +163,7 @@ async fn stop_transcribe(
     }
     #[cfg(target_os = "windows")]
     {
-        let mut guard = handle.0.lock().unwrap();
+        let mut guard = handle.inner().0.lock().unwrap();
         if let Some(state) = guard.take() {
             // Drop stream to stop cpal input and close stream
             drop(state.stream);
@@ -280,10 +284,16 @@ fn sanitize_for_typing(text: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+extern "system" {
+    #[link(name = "kernel32")]
+    fn GlobalFree(hmem: windows_sys::Win32::Foundation::HGLOBAL) -> windows_sys::Win32::Foundation::HGLOBAL;
+}
+
+#[cfg(target_os = "windows")]
 fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{OpenClipboard, EmptyClipboard, SetClipboardData, CloseClipboard};
     use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-    use windows_sys::Win32::System::SystemServices::CF_UNICODETEXT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::CF_UNICODETEXT;
 
     unsafe {
         if OpenClipboard(0) == 0 {
@@ -307,7 +317,6 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         GlobalUnlock(handle);
 
         if SetClipboardData(CF_UNICODETEXT, handle) == 0 {
-            use windows_sys::Win32::System::Memory::GlobalFree;
             GlobalFree(handle);
             CloseClipboard();
             return Err("SetClipboardData failed".to_string());
@@ -470,7 +479,7 @@ fn set_tray_recording(
     tray_handle: State<'_, TrayHandle>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let guard = tray_handle.0.lock().unwrap();
+    let guard = tray_handle.inner().0.lock().unwrap();
     if let Some(tray) = guard.as_ref() {
         let icon = load_tray_icon(&app, if recording { "recording" } else { "idle" })?;
         tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
@@ -488,7 +497,7 @@ fn flash_tray_done(
     tray_handle: State<'_, TrayHandle>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let guard = tray_handle.0.lock().unwrap();
+    let guard = tray_handle.inner().0.lock().unwrap();
     if let Some(tray) = guard.as_ref() {
         let done_icon = load_tray_icon(&app, "done")?;
         tray.set_icon(Some(done_icon.clone())).map_err(|e| e.to_string())?;
@@ -498,7 +507,7 @@ fn flash_tray_done(
 
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(2));
-        if let Some(tray) = app.state::<TrayHandle>().0.lock().unwrap().as_ref() {
+        if let Some(tray) = app.state::<TrayHandle>().inner().0.lock().unwrap().as_ref() {
             if let Ok(idle_icon) = load_tray_icon(&app, "idle") {
                 tray.set_icon(Some(idle_icon)).ok();
                 tray.set_tooltip(Some("Vibe Voice — Hold Ctrl+Space to record")).ok();
@@ -931,7 +940,7 @@ pub fn run() {
             // System tray
             match setup_tray(app) {
                 Ok(tray) => {
-                    *app.state::<TrayHandle>().0.lock().unwrap() = Some(tray);
+                    *app.state::<TrayHandle>().inner().0.lock().unwrap() = Some(tray);
                     eprintln!("[vibe-voice] tray icon ready");
                 }
                 Err(e) => eprintln!("[vibe-voice] tray setup failed: {e}"),
