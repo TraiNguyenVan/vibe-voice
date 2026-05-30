@@ -107,7 +107,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
 
     let spec = hound::WavSpec {
         channels: channels,
-        sample_rate: sample_rate.0,
+        sample_rate: sample_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -145,7 +145,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
             device.build_input_stream(
                 &config_converted,
                 move |data: &[u8], _| {
-                    let samples: Vec<i16> = data.iter().map(|&s| ((s as i16 - 128) << 8)).collect();
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i16 - 128) << 8).collect();
                     let _ = tx.send(samples);
                 },
                 |err| eprintln!("stream error: {err}"),
@@ -396,12 +396,18 @@ fn sanitize_for_typing(text: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GlobalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+}
+
+#[cfg(target_os = "windows")]
 const CF_UNICODETEXT: u32 = 13;
 
 #[cfg(target_os = "windows")]
 fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{OpenClipboard, EmptyClipboard, SetClipboardData, CloseClipboard};
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GlobalFree, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 
     unsafe {
         if OpenClipboard(0) == 0 {
@@ -412,7 +418,7 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let size = utf16.len() * 2;
         let handle = GlobalAlloc(GMEM_MOVEABLE, size);
-        if handle == 0 {
+        if handle.is_null() {
             CloseClipboard();
             return Err("GlobalAlloc failed".to_string());
         }
@@ -425,7 +431,7 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr as *mut u16, utf16.len());
         GlobalUnlock(handle);
 
-        if SetClipboardData(CF_UNICODETEXT, handle) == 0 {
+        if SetClipboardData(CF_UNICODETEXT, handle as isize) == 0 {
             GlobalFree(handle);
             CloseClipboard();
             return Err("SetClipboardData failed".to_string());
