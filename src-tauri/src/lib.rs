@@ -516,6 +516,7 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
 
                                 if both_down && !was_active {
                                     ptt_active.store(true, Ordering::Relaxed);
+                                    show_window(&app);
                                     app.emit("global-ptt-start", ()).ok();
                                     eprintln!("[vibe-voice] evdev: Ctrl+Space → PTT start");
                                 } else if !both_down && was_active {
