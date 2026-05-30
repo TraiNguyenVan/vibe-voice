@@ -22,6 +22,14 @@ const saveBtn      = document.getElementById('settings-save-btn');
 const cancelBtn    = document.getElementById('settings-cancel-btn');
 const settingsStatus = document.getElementById('settings-status');
 const app          = document.getElementById('app');
+const historyBtn     = document.getElementById('history-btn');
+const historyPanel   = document.getElementById('history-panel');
+const historyClearBtn = document.getElementById('history-clear-btn');
+const historyList    = document.getElementById('history-list');
+const hotkeyModSelect = document.getElementById('hotkey-mod-select');
+const hotkeyTriggerSelect = document.getElementById('hotkey-trigger-select');
+const hintEl         = document.getElementById('hint');
+
 
 let isRecording = false;
 
@@ -30,6 +38,9 @@ const STORAGE_KEY  = 'vibe-voice-groq-api-key';
 const AUTOTYPE_KEY = 'vibe-voice-auto-type';
 const KEYHOLD_KEY  = 'vibe-voice-key-hold';
 const GUISCALE_KEY = 'vibe-voice-gui-scale';
+const HISTORY_KEY  = 'vibe-voice-transcript-history';
+const HOTKEY_MOD_KEY = 'vibe-voice-hotkey-mod';
+const HOTKEY_TRIGGER_KEY = 'vibe-voice-hotkey-trigger';
 
 function getStoredApiKey() {
   return localStorage.getItem(STORAGE_KEY) || '';
@@ -69,6 +80,113 @@ function saveGuiScale(val) {
   localStorage.setItem(GUISCALE_KEY, String(val));
 }
 
+function getStoredHotkeyMod() {
+  return localStorage.getItem(HOTKEY_MOD_KEY) || 'Ctrl';
+}
+
+function getStoredHotkeyTrigger() {
+  return localStorage.getItem(HOTKEY_TRIGGER_KEY) || 'Space';
+}
+
+function updateHintText() {
+  if (!hintEl) return;
+  const mod = getStoredHotkeyMod();
+  const trigger = getStoredHotkeyTrigger();
+  const combo = mod === 'None' ? trigger : `${mod}+${trigger}`;
+  hintEl.textContent = `${combo} · drag to move`;
+}
+
+function saveHotkeyConfig(mod, trigger) {
+  localStorage.setItem(HOTKEY_MOD_KEY, mod);
+  localStorage.setItem(HOTKEY_TRIGGER_KEY, trigger);
+  updateHintText();
+  invoke('save_hotkeys', { modifier: mod, trigger: trigger }).catch(e => {
+    console.error('[vibe-voice] save_hotkeys invoke failed:', e);
+  });
+}
+
+
+function getHistory() {
+  try {
+    const list = localStorage.getItem(HISTORY_KEY);
+    return list ? JSON.parse(list) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addHistoryItem(text) {
+  if (!text || !text.trim()) return;
+  const history = getHistory();
+  if (history[0] === text.trim()) return;
+  history.unshift(text.trim());
+  const trimmed = history.slice(0, 5);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+  renderHistory();
+}
+
+function clearHistory() {
+  localStorage.removeItem(HISTORY_KEY);
+  renderHistory();
+}
+
+function renderHistory() {
+  const history = getHistory();
+  historyList.innerHTML = '';
+  
+  if (history.length === 0) {
+    historyList.innerHTML = '<div class="history-empty">No history logs</div>';
+    return;
+  }
+  
+  history.forEach((text, index) => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    const preview = text.length > 50 ? text.slice(0, 47) + '...' : text;
+    
+    item.innerHTML = `
+      <div class="history-text" title="${text}">[${index + 1}] ${preview}</div>
+      <div class="history-actions">
+        <button class="hist-act-btn hist-copy" data-index="${index}">[copy]</button>
+        <button class="hist-act-btn hist-paste" data-index="${index}">[paste]</button>
+      </div>
+    `;
+    
+    item.querySelector('.hist-copy').addEventListener('click', () => {
+      navigator.clipboard.writeText(text).then(() => {
+        const originalText = item.querySelector('.hist-copy').textContent;
+        item.querySelector('.hist-copy').textContent = '[copied]';
+        setTimeout(() => {
+          item.querySelector('.hist-copy').textContent = originalText;
+        }, 1200);
+      });
+    });
+    
+    item.querySelector('.hist-paste').addEventListener('click', async () => {
+      try {
+        const originalText = item.querySelector('.hist-paste').textContent;
+        item.querySelector('.hist-paste').textContent = '[pasting]';
+        
+        await invoke('paste_text', {
+          text: text,
+          autoType: true,
+          keyHold: getStoredKeyHold()
+        });
+        
+        item.querySelector('.hist-paste').textContent = originalText;
+      } catch (err) {
+        console.error('[vibe-voice] history paste failed:', err);
+        item.querySelector('.hist-paste').textContent = '[err]';
+        setTimeout(() => {
+          item.querySelector('.hist-paste').textContent = '[paste]';
+        }, 1200);
+      }
+    });
+    
+    historyList.appendChild(item);
+  });
+}
+
 function applyGuiScale(val) {
   // CSS zoom on #app — WebKit supports this and it affects layout metrics
   app.style.setProperty('--gui-scale', val);
@@ -89,6 +207,10 @@ function updateSpeedValueLabel(ms) {
 function toggleSettings() {
   const open = !settingsPanel.classList.contains('visible');
   if (open) {
+    if (historyPanel.classList.contains('visible')) {
+      historyPanel.classList.remove('visible');
+      historyBtn.classList.remove('open');
+    }
     const current = getStoredApiKey();
     apiKeyInput.value = current;
 
@@ -100,15 +222,18 @@ function toggleSettings() {
     updateSpeedValueLabel(keyHold);
     updateSliderState(autoType);
 
+    // Load hotkeys
+    hotkeyModSelect.value = getStoredHotkeyMod();
+    hotkeyTriggerSelect.value = getStoredHotkeyTrigger();
+
     // Load GUI scale
     guiScaleSelect.value = getStoredGuiScale();
 
-    settingsStatus.textContent = current ? 'Key saved — ready to go' : '';
+    settingsStatus.textContent = '';
     settingsStatus.className = '';
     settingsBtn.classList.add('open');
   } else {
     settingsBtn.classList.remove('open');
-    // Revert GUI scale in case of cancel/close
     applyGuiScale(getStoredGuiScale());
   }
   settingsPanel.classList.toggle('visible', open);
@@ -127,17 +252,24 @@ function handleSettingsSave() {
   saveAutoType(autoTypeToggle.checked);
   saveKeyHold(parseInt(speedSlider.value, 10));
 
+  // Save hotkeys
+  saveHotkeyConfig(hotkeyModSelect.value, hotkeyTriggerSelect.value);
+
   // Save GUI scale
   const newScale = guiScaleSelect.value;
   saveGuiScale(newScale);
   applyGuiScale(newScale);
 
-  settingsStatus.textContent = 'Settings saved';
+  settingsStatus.textContent = 'Key saved — ready to go';
   settingsStatus.className = '';
   setTimeout(() => {
     settingsPanel.classList.remove('visible');
     settingsBtn.classList.remove('open');
-  }, 600);
+  }, 1500);
+
+  setTimeout(() => {
+    settingsStatus.textContent = '';
+  }, 5000);
 }
 
 settingsBtn.addEventListener('click', toggleSettings);
@@ -226,6 +358,7 @@ async function stopAndTranscribe() {
 
     if (!transcript || !transcript.trim()) { setStatus('idle'); return; }
 
+    addHistoryItem(transcript);
     showTranscript(transcript);
 
     // ── Exit animation: play before window closes and typing begins ──
@@ -258,15 +391,36 @@ async function stopAndTranscribe() {
 micBtn.addEventListener('mousedown', e => { e.preventDefault(); startRecording(); });
 window.addEventListener('mouseup',   ()  => { if (isRecording) stopAndTranscribe(); });
 
-// ── Ctrl+Space hold-to-talk (window-local) ────────────────────────────────
+function isLocalModifierPressed(e) {
+  const mod = getStoredHotkeyMod();
+  if (mod === 'Ctrl') return e.ctrlKey;
+  if (mod === 'Alt') return e.altKey;
+  if (mod === 'Shift') return e.shiftKey;
+  return true;
+}
+
+function isLocalTriggerKey(e) {
+  const trigger = getStoredHotkeyTrigger();
+  return e.code === trigger;
+}
+
+function isLocalModifierKey(e) {
+  const mod = getStoredHotkeyMod();
+  if (mod === 'Ctrl') return e.code === 'ControlLeft' || e.code === 'ControlRight';
+  if (mod === 'Alt') return e.code === 'AltLeft' || e.code === 'AltRight';
+  if (mod === 'Shift') return e.code === 'ShiftLeft' || e.code === 'ShiftRight';
+  return false;
+}
+
+// ── Custom Dynamic hold-to-talk (window-local) ────────────────────────────
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.ctrlKey && !e.repeat) {
+  if (isLocalTriggerKey(e) && isLocalModifierPressed(e) && !e.repeat) {
     e.preventDefault();
     startRecording();
   }
 });
 window.addEventListener('keyup', e => {
-  if ((e.code === 'Space' || e.code === 'ControlLeft' || e.code === 'ControlRight') && isRecording) {
+  if ((isLocalTriggerKey(e) || isLocalModifierKey(e)) && isRecording) {
     e.preventDefault();
     stopAndTranscribe();
   }
@@ -285,8 +439,33 @@ listen('global-ptt-stop', () => {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 setStatus('idle');
-lucide.createIcons();
+renderHistory();
+updateHintText();
 console.log('[vibe-voice] ready \u2014 tray + global hotkey active');
+
+// Sync hotkey settings on startup
+invoke('save_hotkeys', {
+  modifier: getStoredHotkeyMod(),
+  trigger: getStoredHotkeyTrigger()
+}).catch(e => console.error('[vibe-voice] init save_hotkeys failed:', e));
+
+function toggleHistory() {
+  const open = !historyPanel.classList.contains('visible');
+  if (open) {
+    if (settingsPanel.classList.contains('visible')) {
+      settingsPanel.classList.remove('visible');
+      settingsBtn.classList.remove('open');
+    }
+    renderHistory();
+    historyBtn.classList.add('open');
+  } else {
+    historyBtn.classList.remove('open');
+  }
+  historyPanel.classList.toggle('visible', open);
+}
+
+historyBtn.addEventListener('click', toggleHistory);
+historyClearBtn.addEventListener('click', clearHistory);
 
 // ── Auto-fit window height to content ────────────────────────────────────
 function refitWindow() {

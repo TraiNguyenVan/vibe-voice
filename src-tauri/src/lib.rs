@@ -27,6 +27,14 @@ pub struct RecordingState {
 pub struct RecordingHandle(pub Mutex<Option<RecordingState>>);
 pub struct TrayHandle(pub Mutex<Option<tauri::tray::TrayIcon>>);
 
+#[derive(Clone)]
+pub struct HotkeyConfig {
+    pub modifier: String,
+    pub trigger: String,
+}
+
+pub struct HotkeyState(pub std::sync::Arc<Mutex<HotkeyConfig>>);
+
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
 const MODEL: &str    = "whisper-large-v3-turbo";
 
@@ -42,6 +50,19 @@ fn get_temp_wav_path() -> std::path::PathBuf {
 }
 
 // ── Tauri Commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_hotkeys(
+    modifier: String,
+    trigger: String,
+    state: State<'_, HotkeyState>,
+) -> Result<(), String> {
+    let mut guard = state.0.lock().unwrap();
+    guard.modifier = modifier;
+    guard.trigger = trigger;
+    println!("[vibe-voice] Hotkeys updated: {} + {}", guard.modifier, guard.trigger);
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 #[tauri::command]
@@ -86,7 +107,7 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
 
     let spec = hound::WavSpec {
         channels: channels,
-        sample_rate: sample_rate,
+        sample_rate: sample_rate.0,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -104,37 +125,128 @@ fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
         let _ = writer.finalize();
     });
 
+    let config_converted: cpal::StreamConfig = default_config.into();
+
     let stream = match sample_format {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &default_config.into(),
-            move |data: &[f32], _| {
-                let samples: Vec<i16> = data.iter().map(|&s| {
-                    (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                }).collect();
-                let _ = tx.send(samples);
-            },
-            |err| eprintln!("stream error: {err}"),
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            &default_config.into(),
-            move |data: &[i16], _| {
-                let _ = tx.send(data.to_vec());
-            },
-            |err| eprintln!("stream error: {err}"),
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            &default_config.into(),
-            move |data: &[u16], _| {
-                let samples: Vec<i16> = data.iter().map(|&s| {
-                    (s as i32 - i16::MAX as i32) as i16
-                }).collect();
-                let _ = tx.send(samples);
-            },
-            |err| eprintln!("stream error: {err}"),
-            None,
-        ),
+        cpal::SampleFormat::I8 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i8], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i16) << 8).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U8 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u8], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| ((s as i16 - 128) << 8)).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i16], _| {
+                    let _ = tx.send(data.to_vec());
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u16], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s >> 16) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| ((s >> 16) as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s >> 48) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| ((s >> 48) as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::F32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[f32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::F64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[f64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f64) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
         _ => return Err("unsupported sample format".to_string()),
     }.map_err(|e| format!("build input stream: {e}"))?;
 
@@ -284,18 +396,12 @@ fn sanitize_for_typing(text: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-#[link(name = "kernel32")]
-extern "system" {
-    fn GlobalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-}
-
-#[cfg(target_os = "windows")]
 const CF_UNICODETEXT: u32 = 13;
 
 #[cfg(target_os = "windows")]
 fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{OpenClipboard, EmptyClipboard, SetClipboardData, CloseClipboard};
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GlobalFree, GMEM_MOVEABLE};
 
     unsafe {
         if OpenClipboard(0) == 0 {
@@ -306,7 +412,7 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let size = utf16.len() * 2;
         let handle = GlobalAlloc(GMEM_MOVEABLE, size);
-        if handle.is_null() {
+        if handle == 0 {
             CloseClipboard();
             return Err("GlobalAlloc failed".to_string());
         }
@@ -319,7 +425,7 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr as *mut u16, utf16.len());
         GlobalUnlock(handle);
 
-        if SetClipboardData(CF_UNICODETEXT, handle as isize) == 0 {
+        if SetClipboardData(CF_UNICODETEXT, handle) == 0 {
             GlobalFree(handle);
             CloseClipboard();
             return Err("SetClipboardData failed".to_string());
@@ -524,6 +630,75 @@ fn flash_tray_done(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+#[cfg(target_os = "linux")]
+fn is_evdev_modifier(code: u16, modifier: &str) -> bool {
+    match modifier {
+        "Ctrl" => code == 29 || code == 97,  // KEY_LEFTCTRL, KEY_RIGHTCTRL
+        "Alt" => code == 56 || code == 100,  // KEY_LEFTALT, KEY_RIGHTALT
+        "Shift" => code == 42 || code == 54, // KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_evdev_trigger(code: u16, trigger: &str) -> bool {
+    match trigger {
+        "Space" => code == 57,      // KEY_SPACE
+        "CapsLock" => code == 58,   // KEY_CAPSLOCK
+        "Insert" => code == 110,    // KEY_INSERT
+        "F9" => code == 67,         // KEY_F9
+        "F10" => code == 68,        // KEY_F10
+        "F12" => code == 88,        // KEY_F12
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_win_modifier(vk: u32, modifier: &str) -> bool {
+    match modifier {
+        "Ctrl" => vk == 0x11 || vk == 0xA2 || vk == 0xA3, // VK_CONTROL, VK_LCONTROL, VK_RCONTROL
+        "Alt" => vk == 0x12 || vk == 0xA4 || vk == 0xA5,  // VK_MENU, VK_LMENU, VK_RMENU
+        "Shift" => vk == 0x10 || vk == 0xA0 || vk == 0xA1, // VK_SHIFT, VK_LSHIFT, VK_RSHIFT
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_win_trigger(vk: u32, trigger: &str) -> bool {
+    match trigger {
+        "Space" => vk == 0x20,    // VK_SPACE
+        "CapsLock" => vk == 0x14, // VK_CAPITAL
+        "Insert" => vk == 0x2D,   // VK_INSERT
+        "F9" => vk == 0x78,       // VK_F9
+        "F10" => vk == 0x79,      // VK_F10
+        "F12" => vk == 0x7B,      // VK_F12
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_win_modifier_vk(modifier: &str) -> i32 {
+    match modifier {
+        "Ctrl" => 0x11,
+        "Alt" => 0x12,
+        "Shift" => 0x10,
+        _ => 0,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_win_trigger_vk(trigger: &str) -> i32 {
+    match trigger {
+        "Space" => 0x20,
+        "CapsLock" => 0x14,
+        "Insert" => 0x2D,
+        "F9" => 0x78,
+        "F10" => 0x79,
+        "F12" => 0x7B,
+        _ => 0x20,
+    }
+}
+
 /// Load a PNG file from the icons directory and convert it into a Tauri Image.
 fn load_tray_icon(app: &AppHandle, state: &str) -> Result<Image<'static>, String> {
     let filename = match state {
@@ -681,10 +856,6 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
             use evdev::{Device, EventType, Key};
             use std::os::unix::io::AsRawFd;
 
-            const KEY_LEFTCTRL:  u16 = 29;
-            const KEY_RIGHTCTRL: u16 = 97;
-            const KEY_SPACE:     u16 = 57;
-
             // Collect all keyboard devices
             let mut devices: Vec<Device> = Vec::new();
 
@@ -725,7 +896,7 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                 return;
             }
 
-            eprintln!("[vibe-voice] evdev: monitoring {} keyboard device(s) for Ctrl+Space", devices.len());
+            eprintln!("[vibe-voice] evdev: monitoring {} keyboard device(s) for custom hotkeys", devices.len());
 
             // Set all devices to non-blocking using raw fd
             for dev in &devices {
@@ -734,12 +905,19 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                 }
             }
 
-            let ctrl_held  = Arc::new(AtomicBool::new(false));
-            let space_held = Arc::new(AtomicBool::new(false));
+            let mod_held  = Arc::new(AtomicBool::new(false));
+            let trigger_held = Arc::new(AtomicBool::new(false));
             let ptt_active = Arc::new(AtomicBool::new(false));
 
             loop {
                 let mut got_event = false;
+
+                // Load hotkey config dynamically
+                let config = {
+                    let state = app.state::<HotkeyState>();
+                    let guard = state.0.lock().unwrap();
+                    guard.clone()
+                };
 
                 for dev in &mut devices {
                     match dev.fetch_events() {
@@ -750,35 +928,41 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                                 let code  = ev.code();
                                 let value = ev.value(); // 0=up, 1=down, 2=repeat
 
-                                let is_ctrl  = code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL;
-                                let is_space = code == KEY_SPACE;
-                                if !is_ctrl && !is_space { continue; }
+                                let is_mod_key = is_evdev_modifier(code, &config.modifier);
+                                let is_trigger_key = is_evdev_trigger(code, &config.trigger);
+
+                                if !is_mod_key && !is_trigger_key { continue; }
 
                                 got_event = true;
 
                                 if value == 1 {      // key down
-                                    if is_ctrl  { ctrl_held.store(true,  Ordering::Relaxed); }
-                                    if is_space { space_held.store(true,  Ordering::Relaxed); }
+                                    if is_mod_key  { mod_held.store(true,  Ordering::Relaxed); }
+                                    if is_trigger_key { trigger_held.store(true,  Ordering::Relaxed); }
                                 } else if value == 0 { // key up
-                                    if is_ctrl  { ctrl_held.store(false, Ordering::Relaxed); }
-                                    if is_space { space_held.store(false, Ordering::Relaxed); }
+                                    if is_mod_key  { mod_held.store(false, Ordering::Relaxed); }
+                                    if is_trigger_key { trigger_held.store(false, Ordering::Relaxed); }
                                 } else {
                                     continue; // ignore key repeat
                                 }
 
-                                let both_down  = ctrl_held.load(Ordering::Relaxed)
-                                              && space_held.load(Ordering::Relaxed);
+                                let modifier_satisfied = if config.modifier == "None" {
+                                    true
+                                } else {
+                                    mod_held.load(Ordering::Relaxed)
+                                };
+
+                                let both_down = modifier_satisfied && trigger_held.load(Ordering::Relaxed);
                                 let was_active = ptt_active.load(Ordering::Relaxed);
 
                                 if both_down && !was_active {
                                     ptt_active.store(true, Ordering::Relaxed);
                                     show_window(&app);
                                     app.emit("global-ptt-start", ()).ok();
-                                    eprintln!("[vibe-voice] evdev: Ctrl+Space → PTT start");
+                                    eprintln!("[vibe-voice] evdev: PTT start ({} + {})", config.modifier, config.trigger);
                                 } else if !both_down && was_active {
                                     ptt_active.store(false, Ordering::Relaxed);
                                     app.emit("global-ptt-stop", ()).ok();
-                                    eprintln!("[vibe-voice] evdev: Ctrl+Space released → PTT stop");
+                                    eprintln!("[vibe-voice] evdev: PTT stop");
                                 }
                             }
                         }
@@ -836,34 +1020,49 @@ unsafe extern "system" fn keyboard_callback(
         }
 
         let vk = kbd.vkCode;
-        // VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3, VK_CONTROL = 0x11
-        // VK_SPACE = 0x20
-        let is_ctrl = vk == 0x11 || vk == 0xA2 || vk == 0xA3;
-        let is_space = vk == 0x20;
 
-        if is_ctrl || is_space {
-            use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-            
-            // Poll real-time physical keyboard hardware state to prevent keys from getting "stuck"
-            let ctrl_down = (GetAsyncKeyState(0x11) as u16 & 0x8000) != 0;
-            let space_down = (GetAsyncKeyState(0x20) as u16 & 0x8000) != 0;
+        let config = if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+            let state = app.state::<HotkeyState>();
+            let guard = state.0.lock().unwrap();
+            Some(guard.clone())
+        } else {
+            None
+        };
 
-            let both_down = ctrl_down && space_down;
-            let was_active = PTT_ACTIVE.load(Ordering::Relaxed);
+        if let Some(config) = config {
+            let mod_vk = get_win_modifier_vk(&config.modifier);
+            let trig_vk = get_win_trigger_vk(&config.trigger);
 
-            if both_down && !was_active {
-                PTT_ACTIVE.store(true, Ordering::Relaxed);
-                if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
-                    show_window(app);
-                    app.emit("global-ptt-start", ()).ok();
+            let is_ctrl = is_win_modifier(vk, &config.modifier);
+            let is_space = is_win_trigger(vk, &config.trigger);
+
+            if is_ctrl || is_space {
+                use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                
+                let mod_down = if config.modifier == "None" {
+                    true
+                } else {
+                    (GetAsyncKeyState(mod_vk) as u16 & 0x8000) != 0
+                };
+                let trigger_down = (GetAsyncKeyState(trig_vk) as u16 & 0x8000) != 0;
+
+                let both_down = mod_down && trigger_down;
+                let was_active = PTT_ACTIVE.load(Ordering::Relaxed);
+
+                if both_down && !was_active {
+                    PTT_ACTIVE.store(true, Ordering::Relaxed);
+                    if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+                        show_window(app);
+                        app.emit("global-ptt-start", ()).ok();
+                    }
+                    eprintln!("[vibe-voice] Windows global hook: PTT start");
+                } else if !both_down && was_active {
+                    PTT_ACTIVE.store(false, Ordering::Relaxed);
+                    if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+                        app.emit("global-ptt-stop", ()).ok();
+                    }
+                    eprintln!("[vibe-voice] Windows global hook: PTT stop");
                 }
-                eprintln!("[vibe-voice] Windows global hook: Ctrl+Space → PTT start");
-            } else if !both_down && was_active {
-                PTT_ACTIVE.store(false, Ordering::Relaxed);
-                if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
-                    app.emit("global-ptt-stop", ()).ok();
-                }
-                eprintln!("[vibe-voice] Windows global hook: Ctrl+Space released → PTT stop");
             }
         }
     }
@@ -917,16 +1116,24 @@ pub fn run() {
         String::new()
     });
 
+    let hotkey_config = HotkeyConfig {
+        modifier: "Ctrl".to_string(),
+        trigger: "Space".to_string(),
+    };
+    let hotkey_state = HotkeyState(std::sync::Arc::new(Mutex::new(hotkey_config)));
+
     tauri::Builder::default()
         .manage(ApiKey(api_key))
         .manage(RecordingHandle(Mutex::new(None)))
         .manage(TrayHandle(Mutex::new(None)))
+        .manage(hotkey_state)
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_transcribe,
             paste_text,
             set_tray_recording,
             flash_tray_done,
+            save_hotkeys,
         ])
         .setup(|app| {
             // System tray
