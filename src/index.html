@@ -5,31 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vibe Voice</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
   <div id="app">
     <div id="titlebar" data-tauri-drag-region>
       <div id="app-name">
-        <span id="tb-dot"></span>
+        <img src="logo.png" id="app-logo" alt="Logo" />
         <span>Vibe Voice</span>
       </div>
       <div id="titlebar-actions">
-        <button id="settings-btn" title="Settings" class="tb-btn">
-          <i data-lucide="settings"></i>
-        </button>
-        <button id="close-btn" title="Close" class="tb-btn">
-          <i data-lucide="x"></i>
-        </button>
+        <button id="history-btn" title="History" class="tb-btn">[h]</button>
+        <button id="settings-btn" title="Settings" class="tb-btn">[~]</button>
+        <button id="close-btn" title="Close" class="tb-btn">[x]</button>
       </div>
     </div>
 
     <div id="content">
       <div id="mic-wrap">
         <button id="mic-btn" title="Hold to record">
-          <i data-lucide="mic" id="mic-icon"></i>
+          <span id="mic-text">PTT</span>
         </button>
         <div id="waveform">
           <span class="wave"></span>
@@ -43,12 +39,12 @@
       <div id="info">
         <div id="status-row">
           <span id="status-icons">
-            <i data-lucide="mic" class="si si-idle"></i>
-            <i data-lucide="radio" class="si si-recording"></i>
-            <i data-lucide="circle-dashed" class="si si-thinking"></i>
-            <i data-lucide="check-circle" class="si si-done"></i>
-            <i data-lucide="clipboard" class="si si-copied"></i>
-            <i data-lucide="alert-circle" class="si si-error"></i>
+            <span class="si si-idle">[-]</span>
+            <span class="si si-recording">[●]</span>
+            <span class="si si-thinking">[~]</span>
+            <span class="si si-done">[✓]</span>
+            <span class="si si-copied">[+]</span>
+            <span class="si si-error">[!]</span>
           </span>
           <p id="status">Hold to record</p>
         </div>
@@ -57,10 +53,17 @@
       </div>
     </div>
 
+    <div id="history-panel">
+      <div id="history-header">
+        <span>[ History ]</span>
+        <button id="history-clear-btn">[clear]</button>
+      </div>
+      <div id="history-list"></div>
+    </div>
+
     <div id="settings-panel">
       <label for="api-key-input">Groq API Key</label>
       <div id="api-key-wrap">
-        <i data-lucide="key-round" class="input-icon"></i>
         <input id="api-key-input" type="password" placeholder="gsk_..." autocomplete="off" />
       </div>
 
@@ -70,6 +73,28 @@
           <input id="auto-type-toggle" type="checkbox" />
           <span class="switch-slider"></span>
         </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="hotkey-mod-select">PTT Modifier</label>
+        <select id="hotkey-mod-select" class="setting-select">
+          <option value="Ctrl">Ctrl</option>
+          <option value="Alt">Alt</option>
+          <option value="Shift">Shift</option>
+          <option value="None">None</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <label for="hotkey-trigger-select">PTT Key</label>
+        <select id="hotkey-trigger-select" class="setting-select">
+          <option value="Space">Space</option>
+          <option value="CapsLock">CapsLock</option>
+          <option value="Insert">Insert</option>
+          <option value="F9">F9</option>
+          <option value="F10">F10</option>
+          <option value="F12">F12</option>
+        </select>
       </div>
 
       <div class="setting-group" id="speed-setting-group">

@@ -1,5 +1,9 @@
+#[cfg(target_os = "linux")]
 use std::io::Write;
-use std::sync::{Mutex, Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use reqwest::multipart;
 use tauri::{
@@ -10,29 +14,248 @@ use tauri::{
 };
 
 pub struct ApiKey(pub String);
-pub struct RecordingHandle(pub Mutex<Option<std::process::Child>>);
+
+#[cfg(target_os = "linux")]
+pub type RecordingState = std::process::Child;
+
+#[cfg(target_os = "windows")]
+pub struct RecordingState {
+    stream: cpal::Stream,
+    writer_thread: std::thread::JoinHandle<()>,
+}
+
+pub struct RecordingHandle(pub Mutex<Option<RecordingState>>);
 pub struct TrayHandle(pub Mutex<Option<tauri::tray::TrayIcon>>);
+
+#[derive(Clone)]
+pub struct HotkeyConfig {
+    pub modifier: String,
+    pub trigger: String,
+}
+
+pub struct HotkeyState(pub std::sync::Arc<Mutex<HotkeyConfig>>);
 
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
 const MODEL: &str    = "whisper-large-v3-turbo";
-const TMP_WAV: &str  = "/tmp/vibe-voice-rec.wav";
+
+fn get_temp_wav_path() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::temp_dir().join("vibe-voice-rec.wav")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::path::PathBuf::from("/tmp/vibe-voice-rec.wav")
+    }
+}
 
 // ── Tauri Commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
+fn save_hotkeys(
+    modifier: String,
+    trigger: String,
+    state: State<'_, HotkeyState>,
+) -> Result<(), String> {
+    let mut guard = state.0.lock().unwrap();
+    guard.modifier = modifier;
+    guard.trigger = trigger;
+    println!("[vibe-voice] Hotkeys updated: {} + {}", guard.modifier, guard.trigger);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
 fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
-    let mut guard = handle.0.lock().unwrap();
+    let mut guard = handle.inner().0.lock().unwrap();
     if guard.is_some() { return Ok(()); }
 
-    let _ = std::fs::remove_file(TMP_WAV);
+    let wav_path = get_temp_wav_path();
+    let _ = std::fs::remove_file(&wav_path);
 
     let child = Command::new("/usr/bin/parec")
         .args(["--channels=1", "--rate=16000", "--format=s16le",
-               "--file-format=wav", "--latency-msec=50", TMP_WAV])
+               "--file-format=wav", "--latency-msec=50", wav_path.to_str().unwrap()])
         .spawn()
         .map_err(|e| format!("parec failed: {e}"))?;
 
     *guard = Some(child);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn start_recording(handle: State<'_, RecordingHandle>) -> Result<(), String> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+    let mut guard = handle.inner().0.lock().unwrap();
+    if guard.is_some() { return Ok(()); }
+
+    let host = cpal::default_host();
+    let device = host.default_input_device()
+        .ok_or_else(|| "No input device found".to_string())?;
+
+    let default_config = device.default_input_config()
+        .map_err(|e| format!("Failed to get default input config: {e}"))?;
+    
+    let sample_rate = default_config.sample_rate();
+    let channels = default_config.channels();
+    let sample_format = default_config.sample_format();
+
+    let wav_path = get_temp_wav_path();
+    let _ = std::fs::remove_file(&wav_path);
+
+    let spec = hound::WavSpec {
+        channels: channels,
+        sample_rate: sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(&wav_path, spec)
+        .map_err(|e| format!("failed to create wav file: {e}"))?;
+
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<i16>>();
+
+    let writer_thread = std::thread::spawn(move || {
+        for samples in rx {
+            for sample in samples {
+                let _ = writer.write_sample(sample);
+            }
+        }
+        let _ = writer.finalize();
+    });
+
+    let config_converted: cpal::StreamConfig = default_config.into();
+
+    let stream = match sample_format {
+        cpal::SampleFormat::I8 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i8], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i16) << 8).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U8 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u8], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i16 - 128) << 8).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i16], _| {
+                    let _ = tx.send(data.to_vec());
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u16], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s >> 16) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| ((s >> 16) as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::I64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[i64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s >> 48) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::U64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[u64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| ((s >> 48) as i32 - 32768) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::F32 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[f32], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        cpal::SampleFormat::F64 => {
+            let tx = tx.clone();
+            device.build_input_stream(
+                &config_converted,
+                move |data: &[f64], _| {
+                    let samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f64) as i16).collect();
+                    let _ = tx.send(samples);
+                },
+                |err| eprintln!("stream error: {err}"),
+                None,
+            )
+        }
+        _ => return Err("unsupported sample format".to_string()),
+    }.map_err(|e| format!("build input stream: {e}"))?;
+
+    stream.play().map_err(|e| format!("play stream: {e}"))?;
+
+    *guard = Some(RecordingState {
+        stream,
+        writer_thread,
+    });
     Ok(())
 }
 
@@ -42,17 +265,29 @@ async fn stop_transcribe(
     env_key: State<'_, ApiKey>,
     api_key: Option<String>,
 ) -> Result<String, String> {
+    #[cfg(target_os = "linux")]
     {
-        let mut guard = handle.0.lock().unwrap();
+        let mut guard = handle.inner().0.lock().unwrap();
         if let Some(mut child) = guard.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
     }
+    #[cfg(target_os = "windows")]
+    {
+        let mut guard = handle.inner().0.lock().unwrap();
+        if let Some(state) = guard.take() {
+            // Drop stream to stop cpal input and close stream
+            drop(state.stream);
+            // Join the writer thread to ensure the WAV is closed and written
+            let _ = state.writer_thread.join();
+        }
+    }
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    let audio = std::fs::read(TMP_WAV)
+    let wav_path = get_temp_wav_path();
+    let audio = std::fs::read(&wav_path)
         .map_err(|e| format!("read wav: {e}"))?;
 
     if audio.len() < 1000 {
@@ -94,6 +329,7 @@ async fn stop_transcribe(
 /// Discover the ydotoold socket path. The daemon may have been started with
 /// a custom `--socket-path`, so the env var `YDOTOOL_SOCKET` isn't always set
 /// (especially when the app is launched from a .desktop file / RPM install).
+#[cfg(target_os = "linux")]
 fn find_ydotool_socket() -> Option<String> {
     // 1. Check the environment variable first (set in dev terminal sessions)
     if let Ok(path) = std::env::var("YDOTOOL_SOCKET") {
@@ -148,6 +384,7 @@ fn find_ydotool_socket() -> Option<String> {
     None
 }
 
+#[cfg(target_os = "linux")]
 fn sanitize_for_typing(text: &str) -> String {
     text.chars()
         .map(|c| match c {
@@ -158,6 +395,112 @@ fn sanitize_for_typing(text: &str) -> String {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GlobalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+}
+
+#[cfg(target_os = "windows")]
+const CF_UNICODETEXT: u32 = 13;
+
+#[cfg(target_os = "windows")]
+fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
+    use windows_sys::Win32::System::DataExchange::{OpenClipboard, EmptyClipboard, SetClipboardData, CloseClipboard};
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+
+    unsafe {
+        if OpenClipboard(0) == 0 {
+            return Err("Failed to open clipboard".to_string());
+        }
+        EmptyClipboard();
+
+        let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let size = utf16.len() * 2;
+        let handle = GlobalAlloc(GMEM_MOVEABLE, size);
+        if handle.is_null() {
+            CloseClipboard();
+            return Err("GlobalAlloc failed".to_string());
+        }
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            return Err("GlobalLock failed".to_string());
+        }
+        std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr as *mut u16, utf16.len());
+        GlobalUnlock(handle);
+
+        if SetClipboardData(CF_UNICODETEXT, handle as isize) == 0 {
+            GlobalFree(handle);
+            CloseClipboard();
+            return Err("SetClipboardData failed".to_string());
+        }
+
+        CloseClipboard();
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn simulate_paste_windows() {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP
+    };
+    const VK_CONTROL: u16 = 0x11;
+    const VK_V: u16 = 0x56;
+
+    unsafe {
+        let mut inputs: [INPUT; 4] = std::mem::zeroed();
+
+        // Press Ctrl
+        inputs[0].r#type = INPUT_KEYBOARD;
+        inputs[0].Anonymous.ki = KEYBDINPUT {
+            wVk: VK_CONTROL,
+            wScan: 0,
+            dwFlags: 0,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+
+        // Press V
+        inputs[1].r#type = INPUT_KEYBOARD;
+        inputs[1].Anonymous.ki = KEYBDINPUT {
+            wVk: VK_V,
+            wScan: 0,
+            dwFlags: 0,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+
+        // Release V
+        inputs[2].r#type = INPUT_KEYBOARD;
+        inputs[2].Anonymous.ki = KEYBDINPUT {
+            wVk: VK_V,
+            wScan: 0,
+            dwFlags: KEYEVENTF_KEYUP,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+
+        // Release Ctrl
+        inputs[3].r#type = INPUT_KEYBOARD;
+        inputs[3].Anonymous.ki = KEYBDINPUT {
+            wVk: VK_CONTROL,
+            wScan: 0,
+            dwFlags: KEYEVENTF_KEYUP,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+
+        SendInput(
+            4,
+            inputs.as_mut_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        );
+    }
+}
+
 #[tauri::command]
 async fn paste_text(
     text: String,
@@ -165,60 +508,84 @@ async fn paste_text(
     key_hold: u64,
     window: tauri::WebviewWindow,
 ) -> Result<bool, String> {
-    // ── Step 1: Copy text to Wayland clipboard (safety net) ──
-    if let Err(e) = Command::new("/usr/bin/wl-copy")
-        .arg(&text)
-        .status()
+    let _ = key_hold;
+    #[cfg(target_os = "linux")]
     {
-        eprintln!("[vibe-voice] wl-copy failed to launch: {e}");
-    }
+        // ── Step 1: Copy text to Wayland clipboard (safety net) ──
+        if let Err(e) = Command::new("/usr/bin/wl-copy")
+            .arg(&text)
+            .status()
+        {
+            eprintln!("[vibe-voice] wl-copy failed to launch: {e}");
+        }
 
-    // ── Step 2: Hide window so previous window regains focus ──
-    window.hide().ok();
-    std::thread::sleep(std::time::Duration::from_millis(300));
+        // ── Step 2: Hide window so previous window regains focus ──
+        window.hide().ok();
+        std::thread::sleep(std::time::Duration::from_millis(300));
 
-    if !auto_type {
-        return Ok(false);
-    }
+        if !auto_type {
+            return Ok(false);
+        }
 
-    // ── Step 3: Type transcript character-by-character via ydotool ──
-    let sanitized = sanitize_for_typing(&text);
-    eprintln!("[vibe-voice] typing {} chars (delay: {}ms)", sanitized.len(), key_hold);
+        // ── Step 3: Type transcript character-by-character via ydotool ──
+        let sanitized = sanitize_for_typing(&text);
+        eprintln!("[vibe-voice] typing {} chars (delay: {}ms)", sanitized.len(), key_hold);
 
-    let key_hold_str = key_hold.to_string();
-    let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
-    ydotool_cmd
-        .args(["type", "--key-delay", "1", "--key-hold", &key_hold_str, "--file", "-"])
-        .stdin(std::process::Stdio::piped());
+        let key_hold_str = key_hold.to_string();
+        let mut ydotool_cmd = Command::new("/usr/bin/ydotool");
+        ydotool_cmd
+            .args(["type", "--key-delay", "1", "--key-hold", &key_hold_str, "--file", "-"])
+            .stdin(std::process::Stdio::piped());
 
-    if let Some(socket_path) = find_ydotool_socket() {
-        eprintln!("[vibe-voice] using ydotool socket: {socket_path}");
-        ydotool_cmd.env("YDOTOOL_SOCKET", &socket_path);
-    } else {
-        eprintln!("[vibe-voice] WARNING: could not find ydotool socket — typing may fail");
-    }
+        if let Some(socket_path) = find_ydotool_socket() {
+            eprintln!("[vibe-voice] using ydotool socket: {socket_path}");
+            ydotool_cmd.env("YDOTOOL_SOCKET", &socket_path);
+        } else {
+            eprintln!("[vibe-voice] WARNING: could not find ydotool socket — typing may fail");
+        }
 
-    let ok = match ydotool_cmd.spawn() {
-        Ok(mut child) => {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(sanitized.as_bytes());
-            }
-            match child.wait() {
-                Ok(status) => status.success(),
-                Err(e) => {
-                    eprintln!("[vibe-voice] ydotool wait failed: {e}");
-                    false
+        let ok = match ydotool_cmd.spawn() {
+            Ok(mut child) => {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(sanitized.as_bytes());
+                }
+                match child.wait() {
+                    Ok(status) => status.success(),
+                    Err(e) => {
+                        eprintln!("[vibe-voice] ydotool wait failed: {e}");
+                        false
+                    }
                 }
             }
-        }
-        Err(e) => {
-            eprintln!("[vibe-voice] ydotool failed to launch: {e}");
-            false
-        }
-    };
+            Err(e) => {
+                eprintln!("[vibe-voice] ydotool failed to launch: {e}");
+                false
+            }
+        };
 
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    Ok(ok)
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        Ok(ok)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // ── Step 1: Copy to clipboard ──
+        copy_to_clipboard_windows(&text)?;
+
+        // ── Step 2: Hide window so previous window regains focus ──
+        window.hide().ok();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        if !auto_type {
+            return Ok(false);
+        }
+
+        // ── Step 3: Simulate Ctrl+V ──
+        simulate_paste_windows();
+
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        Ok(true)
+    }
 }
 
 /// Called by JS to swap the tray icon between idle ↔ recording states.
@@ -228,7 +595,7 @@ fn set_tray_recording(
     tray_handle: State<'_, TrayHandle>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let guard = tray_handle.0.lock().unwrap();
+    let guard = tray_handle.inner().0.lock().unwrap();
     if let Some(tray) = guard.as_ref() {
         let icon = load_tray_icon(&app, if recording { "recording" } else { "idle" })?;
         tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
@@ -246,7 +613,7 @@ fn flash_tray_done(
     tray_handle: State<'_, TrayHandle>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let guard = tray_handle.0.lock().unwrap();
+    let guard = tray_handle.inner().0.lock().unwrap();
     if let Some(tray) = guard.as_ref() {
         let done_icon = load_tray_icon(&app, "done")?;
         tray.set_icon(Some(done_icon.clone())).map_err(|e| e.to_string())?;
@@ -256,7 +623,7 @@ fn flash_tray_done(
 
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(2));
-        if let Some(tray) = app.state::<TrayHandle>().0.lock().unwrap().as_ref() {
+        if let Some(tray) = app.state::<TrayHandle>().inner().0.lock().unwrap().as_ref() {
             if let Ok(idle_icon) = load_tray_icon(&app, "idle") {
                 tray.set_icon(Some(idle_icon)).ok();
                 tray.set_tooltip(Some("Vibe Voice — Hold Ctrl+Space to record")).ok();
@@ -268,6 +635,75 @@ fn flash_tray_done(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+fn is_evdev_modifier(code: u16, modifier: &str) -> bool {
+    match modifier {
+        "Ctrl" => code == 29 || code == 97,  // KEY_LEFTCTRL, KEY_RIGHTCTRL
+        "Alt" => code == 56 || code == 100,  // KEY_LEFTALT, KEY_RIGHTALT
+        "Shift" => code == 42 || code == 54, // KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_evdev_trigger(code: u16, trigger: &str) -> bool {
+    match trigger {
+        "Space" => code == 57,      // KEY_SPACE
+        "CapsLock" => code == 58,   // KEY_CAPSLOCK
+        "Insert" => code == 110,    // KEY_INSERT
+        "F9" => code == 67,         // KEY_F9
+        "F10" => code == 68,        // KEY_F10
+        "F12" => code == 88,        // KEY_F12
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_win_modifier(vk: u32, modifier: &str) -> bool {
+    match modifier {
+        "Ctrl" => vk == 0x11 || vk == 0xA2 || vk == 0xA3, // VK_CONTROL, VK_LCONTROL, VK_RCONTROL
+        "Alt" => vk == 0x12 || vk == 0xA4 || vk == 0xA5,  // VK_MENU, VK_LMENU, VK_RMENU
+        "Shift" => vk == 0x10 || vk == 0xA0 || vk == 0xA1, // VK_SHIFT, VK_LSHIFT, VK_RSHIFT
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_win_trigger(vk: u32, trigger: &str) -> bool {
+    match trigger {
+        "Space" => vk == 0x20,    // VK_SPACE
+        "CapsLock" => vk == 0x14, // VK_CAPITAL
+        "Insert" => vk == 0x2D,   // VK_INSERT
+        "F9" => vk == 0x78,       // VK_F9
+        "F10" => vk == 0x79,      // VK_F10
+        "F12" => vk == 0x7B,      // VK_F12
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_win_modifier_vk(modifier: &str) -> i32 {
+    match modifier {
+        "Ctrl" => 0x11,
+        "Alt" => 0x12,
+        "Shift" => 0x10,
+        _ => 0,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_win_trigger_vk(trigger: &str) -> i32 {
+    match trigger {
+        "Space" => 0x20,
+        "CapsLock" => 0x14,
+        "Insert" => 0x2D,
+        "F9" => 0x78,
+        "F10" => 0x79,
+        "F12" => 0x7B,
+        _ => 0x20,
+    }
+}
 
 /// Load a PNG file from the icons directory and convert it into a Tauri Image.
 fn load_tray_icon(app: &AppHandle, state: &str) -> Result<Image<'static>, String> {
@@ -418,16 +854,13 @@ fn setup_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::er
 // Requires the user to be in the `input` group (same requirement as ydotoold).
 // Uses a 8ms polling loop across all keyboard devices.
 
+#[cfg(target_os = "linux")]
 fn spawn_global_hotkey_listener(app: AppHandle) {
     std::thread::Builder::new()
         .name("evdev-hotkey".into())
         .spawn(move || {
             use evdev::{Device, EventType, Key};
             use std::os::unix::io::AsRawFd;
-
-            const KEY_LEFTCTRL:  u16 = 29;
-            const KEY_RIGHTCTRL: u16 = 97;
-            const KEY_SPACE:     u16 = 57;
 
             // Collect all keyboard devices
             let mut devices: Vec<Device> = Vec::new();
@@ -469,7 +902,7 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                 return;
             }
 
-            eprintln!("[vibe-voice] evdev: monitoring {} keyboard device(s) for Ctrl+Space", devices.len());
+            eprintln!("[vibe-voice] evdev: monitoring {} keyboard device(s) for custom hotkeys", devices.len());
 
             // Set all devices to non-blocking using raw fd
             for dev in &devices {
@@ -478,12 +911,19 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                 }
             }
 
-            let ctrl_held  = Arc::new(AtomicBool::new(false));
-            let space_held = Arc::new(AtomicBool::new(false));
+            let mod_held  = Arc::new(AtomicBool::new(false));
+            let trigger_held = Arc::new(AtomicBool::new(false));
             let ptt_active = Arc::new(AtomicBool::new(false));
 
             loop {
                 let mut got_event = false;
+
+                // Load hotkey config dynamically
+                let config = {
+                    let state = app.state::<HotkeyState>();
+                    let guard = state.0.lock().unwrap();
+                    guard.clone()
+                };
 
                 for dev in &mut devices {
                     match dev.fetch_events() {
@@ -494,35 +934,41 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
                                 let code  = ev.code();
                                 let value = ev.value(); // 0=up, 1=down, 2=repeat
 
-                                let is_ctrl  = code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL;
-                                let is_space = code == KEY_SPACE;
-                                if !is_ctrl && !is_space { continue; }
+                                let is_mod_key = is_evdev_modifier(code, &config.modifier);
+                                let is_trigger_key = is_evdev_trigger(code, &config.trigger);
+
+                                if !is_mod_key && !is_trigger_key { continue; }
 
                                 got_event = true;
 
                                 if value == 1 {      // key down
-                                    if is_ctrl  { ctrl_held.store(true,  Ordering::Relaxed); }
-                                    if is_space { space_held.store(true,  Ordering::Relaxed); }
+                                    if is_mod_key  { mod_held.store(true,  Ordering::Relaxed); }
+                                    if is_trigger_key { trigger_held.store(true,  Ordering::Relaxed); }
                                 } else if value == 0 { // key up
-                                    if is_ctrl  { ctrl_held.store(false, Ordering::Relaxed); }
-                                    if is_space { space_held.store(false, Ordering::Relaxed); }
+                                    if is_mod_key  { mod_held.store(false, Ordering::Relaxed); }
+                                    if is_trigger_key { trigger_held.store(false, Ordering::Relaxed); }
                                 } else {
                                     continue; // ignore key repeat
                                 }
 
-                                let both_down  = ctrl_held.load(Ordering::Relaxed)
-                                              && space_held.load(Ordering::Relaxed);
+                                let modifier_satisfied = if config.modifier == "None" {
+                                    true
+                                } else {
+                                    mod_held.load(Ordering::Relaxed)
+                                };
+
+                                let both_down = modifier_satisfied && trigger_held.load(Ordering::Relaxed);
                                 let was_active = ptt_active.load(Ordering::Relaxed);
 
                                 if both_down && !was_active {
                                     ptt_active.store(true, Ordering::Relaxed);
                                     show_window(&app);
                                     app.emit("global-ptt-start", ()).ok();
-                                    eprintln!("[vibe-voice] evdev: Ctrl+Space → PTT start");
+                                    eprintln!("[vibe-voice] evdev: PTT start ({} + {})", config.modifier, config.trigger);
                                 } else if !both_down && was_active {
                                     ptt_active.store(false, Ordering::Relaxed);
                                     app.emit("global-ptt-stop", ()).ok();
-                                    eprintln!("[vibe-voice] evdev: Ctrl+Space released → PTT stop");
+                                    eprintln!("[vibe-voice] evdev: PTT stop");
                                 }
                             }
                         }
@@ -540,6 +986,7 @@ fn spawn_global_hotkey_listener(app: AppHandle) {
 }
 
 /// Set a file descriptor to non-blocking mode via `fcntl`.
+#[cfg(target_os = "linux")]
 unsafe fn libc_set_nonblocking(fd: i32) {
     extern "C" {
         fn fcntl(fd: i32, cmd: i32, ...) -> i32;
@@ -551,6 +998,116 @@ unsafe fn libc_set_nonblocking(fd: i32) {
     if flags >= 0 {
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     }
+}
+
+// ── Windows Low Level Keyboard Hook ──────────────────────────────────────────
+
+#[cfg(target_os = "windows")]
+static PTT_ACTIVE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static APP_HANDLE: Mutex<Option<AppHandle>> = Mutex::new(None);
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn keyboard_callback(
+    code: i32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        KBDLLHOOKSTRUCT, CallNextHookEx
+    };
+    if code >= 0 {
+        let kbd = *(lparam as *const KBDLLHOOKSTRUCT);
+        
+        // Ignore simulated/injected inputs to prevent feedback loops with auto-pasting
+        let is_injected = (kbd.flags & 0x10) != 0;
+        if is_injected {
+            return CallNextHookEx(0, code, wparam, lparam);
+        }
+
+        let vk = kbd.vkCode;
+
+        let config = if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+            let state = app.state::<HotkeyState>();
+            let guard = state.0.lock().unwrap();
+            Some(guard.clone())
+        } else {
+            None
+        };
+
+        if let Some(config) = config {
+            let mod_vk = get_win_modifier_vk(&config.modifier);
+            let trig_vk = get_win_trigger_vk(&config.trigger);
+
+            let is_ctrl = is_win_modifier(vk, &config.modifier);
+            let is_space = is_win_trigger(vk, &config.trigger);
+
+            if is_ctrl || is_space {
+                use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                
+                let mod_down = if config.modifier == "None" {
+                    true
+                } else {
+                    (GetAsyncKeyState(mod_vk) as u16 & 0x8000) != 0
+                };
+                let trigger_down = (GetAsyncKeyState(trig_vk) as u16 & 0x8000) != 0;
+
+                let both_down = mod_down && trigger_down;
+                let was_active = PTT_ACTIVE.load(Ordering::Relaxed);
+
+                if both_down && !was_active {
+                    PTT_ACTIVE.store(true, Ordering::Relaxed);
+                    if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+                        show_window(app);
+                        app.emit("global-ptt-start", ()).ok();
+                    }
+                    eprintln!("[vibe-voice] Windows global hook: PTT start");
+                } else if !both_down && was_active {
+                    PTT_ACTIVE.store(false, Ordering::Relaxed);
+                    if let Some(app) = APP_HANDLE.lock().unwrap().as_ref() {
+                        app.emit("global-ptt-stop", ()).ok();
+                    }
+                    eprintln!("[vibe-voice] Windows global hook: PTT stop");
+                }
+            }
+        }
+    }
+    CallNextHookEx(0, code, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_global_hotkey_listener(app: AppHandle) {
+    *APP_HANDLE.lock().unwrap() = Some(app);
+    std::thread::Builder::new()
+        .name("windows-hotkey".into())
+        .spawn(move || {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                SetWindowsHookExW, UnhookWindowsHookEx, GetMessageW, DispatchMessageW, TranslateMessage, WH_KEYBOARD_LL
+            };
+
+            unsafe {
+                let hook_handle = SetWindowsHookExW(
+                    WH_KEYBOARD_LL,
+                    Some(keyboard_callback),
+                    0,
+                    0
+                );
+                if hook_handle == 0 {
+                    eprintln!("[vibe-voice] failed to install Windows keyboard hook");
+                    return;
+                }
+                eprintln!("[vibe-voice] installed Windows low-level keyboard hook");
+
+                let mut msg = std::mem::zeroed();
+                while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+
+                UnhookWindowsHookEx(hook_handle);
+            }
+        })
+        .expect("failed to spawn hotkey thread");
 }
 
 // ── App Entry Point ──────────────────────────────────────────────────────────
@@ -565,28 +1122,36 @@ pub fn run() {
         String::new()
     });
 
+    let hotkey_config = HotkeyConfig {
+        modifier: "Ctrl".to_string(),
+        trigger: "Space".to_string(),
+    };
+    let hotkey_state = HotkeyState(std::sync::Arc::new(Mutex::new(hotkey_config)));
+
     tauri::Builder::default()
         .manage(ApiKey(api_key))
         .manage(RecordingHandle(Mutex::new(None)))
         .manage(TrayHandle(Mutex::new(None)))
+        .manage(hotkey_state)
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_transcribe,
             paste_text,
             set_tray_recording,
             flash_tray_done,
+            save_hotkeys,
         ])
         .setup(|app| {
             // System tray
             match setup_tray(app) {
                 Ok(tray) => {
-                    *app.state::<TrayHandle>().0.lock().unwrap() = Some(tray);
+                    *app.state::<TrayHandle>().inner().0.lock().unwrap() = Some(tray);
                     eprintln!("[vibe-voice] tray icon ready");
                 }
                 Err(e) => eprintln!("[vibe-voice] tray setup failed: {e}"),
             }
 
-            // Global hotkey listener (evdev — works on any Wayland compositor)
+            // Global hotkey listener
             spawn_global_hotkey_listener(app.handle().clone());
 
             Ok(())

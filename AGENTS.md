@@ -6,9 +6,9 @@ Project-specific knowledge for AI agents working on this codebase.
 
 ## What This Is
 
-A Tauri 2 desktop widget for push-to-talk speech-to-text on Linux/Wayland.
+A Tauri 2 desktop widget for push-to-talk speech-to-text on Linux/Wayland and Windows.
 - Stack: Rust backend + vanilla HTML/JS frontend (no bundler)
-- Window: 340×160px, always-on-top, transparent, no decorations
+- Window: 340px wide, auto-adjusting height (fits contents, defaults to ~160px in idle), always-on-top, transparent, no decorations
 
 ---
 
@@ -19,7 +19,8 @@ vibe-voice/
 ├── src/                    # Frontend (served directly, no bundler)
 │   ├── index.html
 │   ├── main.js
-│   └── style.css
+│   ├── style.css
+│   └── logo.png            # TUI-style app logo (16x16px)
 ├── src-tauri/
 │   ├── src/
 │   │   ├── lib.rs          # All Tauri commands + app entry
@@ -31,6 +32,7 @@ vibe-voice/
 ├── .env                    # GROQ_API_KEY=... (not committed)
 ├── run.sh                  # ./run.sh → pnpm tauri dev
 ├── ydotool-setup.sh        # One-shot ydotool/daemon installer for Fedora
+├── design.md               # UI design guidelines (font, palette, elements)
 └── package.json
 ```
 
@@ -63,15 +65,12 @@ Window operations (close, hide, show) require explicit permissions in:
 Without it, `appWindow.close()` and other window calls silently fail.
 The window `label` in `tauri.conf.json` must match the `windows` array in capabilities.
 
-### 3. WebKitGTK Blocks Microphone by Default
+### 3. WebKitGTK Blocks Microphone (Linux) / CPAL Backend (Windows)
 
 `navigator.mediaDevices.getUserMedia()` is **denied** by WebKitGTK on Wayland.
-**Solution:** Record audio in Rust using `parec` subprocess — no browser mic permission needed.
-
-```
-start_recording  → spawns: parec --channels=1 --rate=16000 --format=s16le --file-format=wav /tmp/vibe-voice-rec.wav
-stop_transcribe  → kills parec, reads WAV, sends to Groq, returns transcript
-```
+- **Linux:** Record audio in Rust using a `parec` subprocess (requires `pulseaudio-utils`).
+  `start_recording` spawns `parec` writing to `/tmp/vibe-voice-rec.wav`.
+- **Windows:** Spawns a `cpal` audio input stream capturing from the default recording device, writing raw samples to `Temp/vibe-voice-rec.wav` via `hound`.
 
 ### 4. Hyprland Transparency / Gray Box
 
@@ -87,25 +86,35 @@ Then `hyprctl reload`.
 
 ### 5. `keydown` Fires Repeatedly on Hold (key repeat)
 
-For keyboard PTT (Ctrl+Space), `keydown` fires on every key-repeat tick.
-**Fix:** Use `!e.repeat` to only trigger on the first press, and stop on `keyup`:
+For keyboard PTT (custom combo like Ctrl+Space), `keydown` fires on every key-repeat tick.
+**Fix:** Check `!e.repeat` and verify if the custom modifier and trigger keys match:
 ```js
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.ctrlKey && !e.repeat) startRecording();
+  if (isLocalTriggerKey(e) && isLocalModifierPressed(e) && !e.repeat) {
+    e.preventDefault();
+    startRecording();
+  }
 });
 window.addEventListener('keyup', e => {
-  if ((e.code === 'Space' || e.code === 'ControlLeft') && isRecording) stopAndTranscribe();
+  if ((isLocalTriggerKey(e) || isLocalModifierKey(e)) && isRecording) {
+    e.preventDefault();
+    stopAndTranscribe();
+  }
 });
 ```
 
-### 6. Auto-paste Types Character-by-Character via ydotool
+### 6. Auto-paste / Simulating Keyboard Events
 
-The paste flow types the transcript character-by-character using `ydotool type --file -` with piped stdin:
-1. `wl-copy` the text to clipboard (safety net)
-2. `window.hide()` — gives focus back to previous window
-3. Sleep 300ms — compositor needs time to re-focus
-4. `ydotool type --file -` — pipes text through stdin, types each char via evdev
-5. Window stays hidden after paste
+- **Linux:** Types the transcript character-by-character using `ydotool type --file -` with piped stdin.
+  1. `wl-copy` text to clipboard (safety net).
+  2. `window.hide()` to restore focus to the previous window.
+  3. Sleep 300ms for compositor to refocus.
+  4. Type via ydotool.
+- **Windows:** Uses FFI clipboard copy and simulates paste via `SendInput` (sending Ctrl+V).
+  1. Copy text to Unicode clipboard (`CF_UNICODETEXT`).
+  2. `window.hide()`.
+  3. Sleep 300ms.
+  4. Send control-V down/up keyboard inputs.
 
 ydotool requires the daemon (`ydotoold`) to be running and user in `input` group.
 
@@ -144,11 +153,12 @@ Loaded at startup via `dotenvy::from_path()` pointing to the parent of `src-taur
 
 | Command | Signature | Description |
 |---|---|---|
-| `start_recording` | `() → Result<(), String>` | Spawns `parec`, writes to `/tmp/vibe-voice-rec.wav` |
-| `stop_transcribe` | `(api_key?: String) → Result<String, String>` | Kills parec, sends WAV to Groq, returns transcript |
-| `paste_text` | `(text: String, window: WebviewWindow) → Result<bool, String>` | wl-copy + hide + ydotool type --file - (character-by-character) |
+| `start_recording` | `() → Result<(), String>` | Spawns `parec` (Linux) or builds `cpal` stream (Windows), writes to temp WAV |
+| `stop_transcribe` | `(api_key?: String) → Result<String, String>` | Stops recording, sends WAV to Groq, returns transcript |
+| `paste_text` | `(text: String, auto_type: bool, key_hold: u64, window: WebviewWindow) → Result<bool, String>` | Linux: wl-copy + hide + ydotool. Windows: clipboard + hide + Ctrl+V |
 | `set_tray_recording` | `(recording: bool) → Result<(), String>` | Swaps tray icon between idle/recording |
 | `flash_tray_done` | `() → Result<(), String>` | Shows green done icon for 2s then reverts to idle |
+| `save_hotkeys` | `(modifier: String, trigger: String) → Result<(), String>` | Syncs custom PTT hotkey settings to Rust backend |
 
 ---
 
@@ -156,15 +166,15 @@ Loaded at startup via `dotenvy::from_path()` pointing to the parent of `src-taur
 
 1. **Plan**: Identify if the feature requires System UI (Rust) or Visual UI (Vanilla JS)
 2. **Build**: Write the Rust command in `src/lib.rs` → Register it → Call it via `window.__TAURI__.core.invoke` in `main.js`
-3. **Test**: Run `./run.sh` and test locally on your Wayland compositor
+3. **Test**: Run `./run.sh` and test locally on your Wayland compositor or Windows target
 
 ---
 
 ## Releasing
 
 ```bash
-git tag v0.1.0
+git tag v0.2.0
 git push --tags
 ```
 
-Pushing a tag `v*` triggers `.github/workflows/release.yml` which builds `.deb` + `.rpm` and publishes them to GitHub Releases.
+Pushing a tag `v*` triggers `.github/workflows/release.yml` which builds `.deb` + `.rpm` + Windows setup executables and publishes them to GitHub Releases.

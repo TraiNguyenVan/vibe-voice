@@ -1,6 +1,6 @@
 # Vibe Voice
 
-> A push-to-talk speech-to-text widget for Linux/Wayland. Hold a button, speak, release — transcript lands in your active window.
+> A push-to-talk speech-to-text widget for Linux/Wayland and Windows. Hold a button, speak, release — transcript lands in your active window.
 
 [![Release](https://img.shields.io/github/v/release/TraiNguyenVan/vibe-voice?style=flat&label=release)](https://github.com/TraiNguyenVan/vibe-voice/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/TraiNguyenVan/vibe-voice/release.yml?style=flat&label=build)](https://github.com/TraiNguyenVan/vibe-voice/actions)
@@ -9,18 +9,25 @@
 
 ## Features
 
-- **Push-to-talk** — hold a mic button or **Ctrl+Space**, release when done
+- **Push-to-talk** — hold a mic button or a configured global hotkey (default **Ctrl+Space**), release when done
 - **Groq Whisper** — lightning-fast speech-to-text via `whisper-large-v3-turbo`
-- **Auto-paste** — transcript is automatically pasted into your previously focused window
+- **Auto-paste** — transcript is automatically pasted into your previously focused window (via `ydotool` on Linux, `SendInput` on Windows)
+- **Transcript History** — view, copy, or re-paste recent transcripts in a sleek monospaced history panel
+- **Custom Hotkeys** — pick custom modifier (Ctrl/Alt/Shift/None) and trigger keys in Settings
+- **Interface Scaling** — scale the UI from 80% to 150% directly inside Settings for accessibility
 - **Tray icon feedback** — red while recording, green flash when done
 - **Always-on-top widget** — small, transparent, no decorations, stays out of your way
 - **Private API key** — set your own Groq key via the Settings panel, stored in localStorage
-- **Global hotkey** — works on any Wayland compositor via evdev (no X11 dependency)
 - **Fedora-first** — one-shot setup script included (`ydotool-setup.sh`)
 
 ---
 
 ## Quick Install
+
+### Windows
+
+1. Download the latest installer executable `vibe-voice-setup.exe` from the [Releases](https://github.com/TraiNguyenVan/vibe-voice/releases) page.
+2. Run the installer and launch the application.
 
 ### Fedora (RPM)
 
@@ -45,16 +52,17 @@ sudo /usr/bin/ydotoold --socket-path=/tmp/.ydotool_socket --socket-own=$(id -u):
 sudo apt install ./vibe-voice_*.deb
 ```
 
-> **Windows are supported?** No. Vibe Voice is a Linux/Wayland-only project.
+> **Windows is supported?** Yes! Vibe Voice fully supports Windows out-of-the-box using the native `cpal` recording backend and `SendInput` paste simulation.
 
 ---
 
 ## First Run
 
-1. Launch **Vibe Voice** from your app menu or run `vibe-voice`
-2. Click the ⚙️ Settings button in the titlebar
+1. Launch **Vibe Voice** from your app menu / start menu or run `vibe-voice`
+2. Click the settings button `[~]` in the titlebar
 3. Paste your [Groq API Key](https://console.groq.com/keys)
-4. Click **Save** — key persists in browser localStorage
+4. Customize your hotkeys, auto-type speed delay, and UI scale if desired
+5. Click **Save** — key and settings persist in local storage
 
 ---
 
@@ -62,11 +70,12 @@ sudo apt install ./vibe-voice_*.deb
 
 | Action | Result |
 |---|---|
-| Hold mic button (or **Ctrl+Space**) | Recording starts, tray icon turns red |
-| Release | Audio → Groq Whisper → clipboard → auto-pasted via ydotool |
+| Hold mic button (or configured hotkey) | Recording starts, tray icon turns red |
+| Release | Audio → Groq Whisper → clipboard → auto-pasted into active window |
 | Tray icon flashes green | Transcription done and pasted |
 | Click tray icon | Show / hide the widget |
-| Settings ⚙️ | Change API key |
+| History `[h]` | Show / hide recent transcripts panel to copy or paste them |
+| Settings `[~]` | Change API key, hotkeys, auto-type delay, and UI scale |
 
 The widget window stays hidden throughout recording — only the tray icon signals state.
 
@@ -75,24 +84,27 @@ The widget window stays hidden throughout recording — only the tray icon signa
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Tauri 2 (Rust)                     │
-│                                                      │
-│  start_recording  →  parec (audio)                   │
-│  stop_transcribe  →  Groq API → transcript           │
-│  paste_text       →  wl-copy + ydotool type --file -        │
-│  flash_tray_done  →  tray icon swap (2s)             │
-│  evdev listener   →  global Ctrl+Space hotkey         │
-└──────────────┬──────────────────────┬────────────────┘
-               │ invoke()             │ emit events
-               ▼                      ▼
-┌──────────────────────────────┐
-│   Frontend (vanilla JS)      │
-│   src/                       │
-│   ├── index.html             │
-│   ├── main.js                │
-│   └── style.css              │
-└──────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+┌───────────────────     Tauri 2 (Rust)     ─────────────────────┐
+│                                                                │
+│  Linux recording  →  parec (audio)                             │
+│  Windows rec      →  cpal input stream                         │
+│  stop_transcribe  →  Groq API → transcript                     │
+│  Linux paste      →  wl-copy + ydotool type                    │
+│  Windows paste    →  Clipboard + SendInput (Ctrl+V)            │
+│  flash_tray_done  →  tray icon swap (2s)                       │
+│  evdev (Linux)    →  global hotkey background thread           │
+│  Hook (Windows)   →  low-level keyboard hook background thread │
+└──────────────┬─────────────────────────┬───────────────────────┘
+               │ invoke()                │ emit events
+               ▼                         ▼
+┌────────────────────────────────────────┐
+│         Frontend (vanilla JS)          │
+│         src/                           │
+│         ├── index.html                 │
+│         ├── main.js                    │
+│         └── style.css                  │
+└────────────────────────────────────────┘
 ```
 
 ---
@@ -104,7 +116,8 @@ vibe-voice/
 ├── src/                        # Frontend (no bundler)
 │   ├── index.html
 │   ├── main.js
-│   └── style.css
+│   ├── style.css
+│   └── logo.png                # TUI-style app logo (16x16px)
 ├── src-tauri/
 │   ├── src/
 │   │   ├── lib.rs              # All Tauri commands + app entry
@@ -114,12 +127,13 @@ vibe-voice/
 │   │   └── default.json        # Tauri 2 window permissions
 │   ├── Cargo.toml
 │   └── tauri.conf.json
-├── LICENSE                   # MIT license
+├── LICENSE                     # MIT license
 ├── .github/workflows/
-│   └── release.yml             # CI: build deb + rpm on tag push
+│   └── release.yml             # CI: build deb + rpm + exe on tag push
 ├── ydotool-setup.sh            # Fedora one-shot daemon setup
 ├── run.sh                      # pnpm tauri dev alias
 ├── .env                        # GROQ_API_KEY (gitignored)
+├── design.md                   # UI design guidelines (font, palette, elements)
 ├── AGENTS.md                   # AI agent instructions (gotchas, commands)
 └── package.json
 ```
@@ -135,10 +149,11 @@ pnpm tauri build
 
 Output:
 
-| Format | Path |
-|---|---|
-| `.deb` | `src-tauri/target/release/bundle/deb/` |
-| `.rpm` | `src-tauri/target/release/bundle/rpm/` |
+| Format | Path | OS |
+|---|---|---|
+| `.deb` | `src-tauri/target/release/bundle/deb/` | Linux |
+| `.rpm` | `src-tauri/target/release/bundle/rpm/` | Linux |
+| `.exe` | `src-tauri/target/release/bundle/nsis/` | Windows |
 
 ### Development
 
@@ -151,6 +166,7 @@ pnpm run dev       # alias
 
 ## Requirements
 
+### Linux
 | Tool | Package | Purpose |
 |---|---|---|
 | `parec` | `pulseaudio-utils` | Audio recording (PipeWire-compatible) |
@@ -159,6 +175,9 @@ pnpm run dev       # alias
 | `ydotoold` | (daemon) | Background daemon; user needs `input` group |
 | `pnpm` | — | Node.js package manager |
 | Rust/Cargo | — | Compiling the Tauri backend |
+
+### Windows
+- No external runtime dependencies required (capturing and pasting are handled natively via Win32 APIs).
 
 ---
 
@@ -170,11 +189,11 @@ The frontend is served as static files. Tauri APIs are accessed via `window.__TA
 
 ### Audio Recording
 
-WebKitGTK blocks `getUserMedia()` on Wayland. Audio is recorded via a `parec` subprocess spawned from Rust:
-
-```bash
-parec --channels=1 --rate=16000 --format=s16le --file-format=wav /tmp/vibe-voice-rec.wav
-```
+- **Linux:** WebKitGTK blocks `getUserMedia()` on Wayland. Audio is recorded via a `parec` subprocess spawned from Rust:
+  ```bash
+  parec --channels=1 --rate=16000 --format=s16le --file-format=wav /tmp/vibe-voice-rec.wav
+  ```
+- **Windows:** Captured using the native `cpal` crate, recording directly from the default input device and saving to `Temp/vibe-voice-rec.wav` using `hound`.
 
 ### Tray Icon States
 
@@ -184,15 +203,27 @@ parec --channels=1 --rate=16000 --format=s16le --file-format=wav /tmp/vibe-voice
 | Recording | Red icon | Recording duration |
 | Done | Green icon | 2 seconds, then reverts to idle |
 
-### Auto-paste Flow (Character-by-Character)
+### Auto-paste Flow
 
-1. `wl-copy` writes transcript to Wayland clipboard (safety net)
-2. Window hides to return focus to previous app
-3. 300ms wait for compositor to refocus
-4. `ydotool type --file -` types each character via evdev (piped stdin)
-5. Window stays hidden after paste
+- **Linux (Character-by-Character):**
+  1. `wl-copy` writes transcript to Wayland clipboard (safety net).
+  2. Window hides to return focus to previous app.
+  3. 300ms wait for compositor to refocus.
+  4. `ydotool type --file -` types each character via evdev.
+  5. Window stays hidden.
+- **Windows (Clipboard + Simulated Paste):**
+  1. Writes text to the Windows Clipboard as Unicode.
+  2. Window hides to restore focus.
+  3. 300ms wait.
+  4. Simulates a `Ctrl+V` key sequence using `SendInput` FFI call.
+  5. Window stays hidden.
 
-### Socket Discovery for RPM
+### Global Hotkeys
+
+- **Linux:** Monitored by a background thread reading `/dev/input/event*` keyboard devices directly (evdev), bypasses compositor-specific hotkey engines.
+- **Windows:** Managed via a standard low-level Windows keyboard hook (`WH_KEYBOARD_LL`), filtering out injected inputs to prevent infinite loops during paste simulations.
+
+### Socket Discovery for RPM (Linux)
 
 When launched from a `.desktop` file, `YDOTOOL_SOCKET` isn't set. The `find_ydotool_socket()` helper in `lib.rs` auto-discovers the socket by:
 1. Checking `$YDOTOOL_SOCKET` env var
