@@ -286,7 +286,7 @@ fn sanitize_for_typing(text: &str) -> String {
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
 extern "system" {
-    fn GlobalFree(hmem: isize) -> isize;
+    fn GlobalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
 }
 
 #[cfg(target_os = "windows")]
@@ -310,17 +310,17 @@ fn copy_to_clipboard_windows(text: &str) -> Result<(), String> {
             CloseClipboard();
             return Err("GlobalAlloc failed".to_string());
         }
-        let ptr = GlobalLock(handle as isize);
+        let ptr = GlobalLock(handle);
         if ptr.is_null() {
-            GlobalFree(handle as isize);
+            GlobalFree(handle);
             CloseClipboard();
             return Err("GlobalLock failed".to_string());
         }
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr as *mut u16, utf16.len());
-        GlobalUnlock(handle as isize);
+        GlobalUnlock(handle);
 
         if SetClipboardData(CF_UNICODETEXT, handle as isize) == 0 {
-            GlobalFree(handle as isize);
+            GlobalFree(handle);
             CloseClipboard();
             return Err("SetClipboardData failed".to_string());
         }
