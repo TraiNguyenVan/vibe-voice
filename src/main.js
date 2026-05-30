@@ -92,8 +92,6 @@ function toggleSettings() {
     settingsBtn.classList.remove('open');
   }
   settingsPanel.classList.toggle('visible', open);
-  // Wait for the max-height CSS transition (350ms) to finish before measuring
-  setTimeout(() => refitWindow(), 360);
 }
 
 function handleSettingsSave() {
@@ -114,8 +112,6 @@ function handleSettingsSave() {
   setTimeout(() => {
     settingsPanel.classList.remove('visible');
     settingsBtn.classList.remove('open');
-    // Wait for the close transition before resizing the window
-    setTimeout(() => refitWindow(), 360);
   }, 600);
 }
 
@@ -264,11 +260,15 @@ console.log('[vibe-voice] ready \u2014 tray + global hotkey active');
 
 // ── Auto-fit window height to content ────────────────────────────────────
 function refitWindow() {
-  const h = document.getElementById('app').scrollHeight;
+  const h = app.scrollHeight;
   if (h > 0) {
     const LogicalSize = window.__TAURI__.window.LogicalSize;
     appWindow.setSize(new LogicalSize(340, h)).catch(() => {});
   }
 }
 
+// React to any size change in #app automatically
+new ResizeObserver(() => refitWindow()).observe(app);
+// Also fire once after fonts/icons have loaded
 requestAnimationFrame(() => refitWindow());
+
