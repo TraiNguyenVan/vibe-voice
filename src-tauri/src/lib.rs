@@ -813,10 +813,6 @@ unsafe fn libc_set_nonblocking(fd: i32) {
 // ── Windows Low Level Keyboard Hook ──────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
-static CTRL_HELD: AtomicBool = AtomicBool::new(false);
-#[cfg(target_os = "windows")]
-static SPACE_HELD: AtomicBool = AtomicBool::new(false);
-#[cfg(target_os = "windows")]
 static PTT_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 static APP_HANDLE: Mutex<Option<AppHandle>> = Mutex::new(None);
@@ -828,14 +824,16 @@ unsafe extern "system" fn keyboard_callback(
     lparam: windows_sys::Win32::Foundation::LPARAM,
 ) -> windows_sys::Win32::Foundation::LRESULT {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        KBDLLHOOKSTRUCT, CallNextHookEx, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
+        KBDLLHOOKSTRUCT, CallNextHookEx
     };
     if code >= 0 {
         let kbd = *(lparam as *const KBDLLHOOKSTRUCT);
-        let event_type = wparam as u32;
-
-        let is_down = event_type == WM_KEYDOWN || event_type == WM_SYSKEYDOWN;
-        let is_up = event_type == WM_KEYUP || event_type == WM_SYSKEYUP;
+        
+        // Ignore simulated/injected inputs to prevent feedback loops with auto-pasting
+        let is_injected = (kbd.flags & 0x10) != 0;
+        if is_injected {
+            return CallNextHookEx(0, code, wparam, lparam);
+        }
 
         let vk = kbd.vkCode;
         // VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3, VK_CONTROL = 0x11
@@ -844,23 +842,13 @@ unsafe extern "system" fn keyboard_callback(
         let is_space = vk == 0x20;
 
         if is_ctrl || is_space {
-            if is_down {
-                if is_ctrl {
-                    CTRL_HELD.store(true, Ordering::Relaxed);
-                }
-                if is_space {
-                    SPACE_HELD.store(true, Ordering::Relaxed);
-                }
-            } else if is_up {
-                if is_ctrl {
-                    CTRL_HELD.store(false, Ordering::Relaxed);
-                }
-                if is_space {
-                    SPACE_HELD.store(false, Ordering::Relaxed);
-                }
-            }
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+            
+            // Poll real-time physical keyboard hardware state to prevent keys from getting "stuck"
+            let ctrl_down = (GetAsyncKeyState(0x11) as u16 & 0x8000) != 0;
+            let space_down = (GetAsyncKeyState(0x20) as u16 & 0x8000) != 0;
 
-            let both_down = CTRL_HELD.load(Ordering::Relaxed) && SPACE_HELD.load(Ordering::Relaxed);
+            let both_down = ctrl_down && space_down;
             let was_active = PTT_ACTIVE.load(Ordering::Relaxed);
 
             if both_down && !was_active {
