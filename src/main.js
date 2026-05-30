@@ -17,6 +17,7 @@ const autoTypeToggle = document.getElementById('auto-type-toggle');
 const speedSlider  = document.getElementById('speed-slider');
 const speedValue   = document.getElementById('speed-value');
 const speedSettingGroup = document.getElementById('speed-setting-group');
+const guiScaleSelect = document.getElementById('gui-scale-select');
 const saveBtn      = document.getElementById('settings-save-btn');
 const cancelBtn    = document.getElementById('settings-cancel-btn');
 const settingsStatus = document.getElementById('settings-status');
@@ -25,9 +26,10 @@ const app          = document.getElementById('app');
 let isRecording = false;
 
 // ── Settings / LocalStorage Keys ─────────────────────────────────────────────
-const STORAGE_KEY = 'vibe-voice-groq-api-key';
+const STORAGE_KEY  = 'vibe-voice-groq-api-key';
 const AUTOTYPE_KEY = 'vibe-voice-auto-type';
-const KEYHOLD_KEY = 'vibe-voice-key-hold';
+const KEYHOLD_KEY  = 'vibe-voice-key-hold';
+const GUISCALE_KEY = 'vibe-voice-gui-scale';
 
 function getStoredApiKey() {
   return localStorage.getItem(STORAGE_KEY) || '';
@@ -59,6 +61,19 @@ function saveKeyHold(val) {
   localStorage.setItem(KEYHOLD_KEY, String(val));
 }
 
+function getStoredGuiScale() {
+  return localStorage.getItem(GUISCALE_KEY) || '1';
+}
+
+function saveGuiScale(val) {
+  localStorage.setItem(GUISCALE_KEY, String(val));
+}
+
+function applyGuiScale(val) {
+  // CSS zoom on #app — WebKit supports this and it affects layout metrics
+  app.style.setProperty('--gui-scale', val);
+}
+
 function updateSliderState(enabled) {
   if (enabled) {
     speedSettingGroup.classList.remove('disabled');
@@ -85,11 +100,16 @@ function toggleSettings() {
     updateSpeedValueLabel(keyHold);
     updateSliderState(autoType);
 
+    // Load GUI scale
+    guiScaleSelect.value = getStoredGuiScale();
+
     settingsStatus.textContent = current ? 'Key saved — ready to go' : '';
     settingsStatus.className = '';
     settingsBtn.classList.add('open');
   } else {
     settingsBtn.classList.remove('open');
+    // Revert GUI scale in case of cancel/close
+    applyGuiScale(getStoredGuiScale());
   }
   settingsPanel.classList.toggle('visible', open);
 }
@@ -106,6 +126,11 @@ function handleSettingsSave() {
   // Save auto-type & delay settings
   saveAutoType(autoTypeToggle.checked);
   saveKeyHold(parseInt(speedSlider.value, 10));
+
+  // Save GUI scale
+  const newScale = guiScaleSelect.value;
+  saveGuiScale(newScale);
+  applyGuiScale(newScale);
 
   settingsStatus.textContent = 'Settings saved';
   settingsStatus.className = '';
@@ -128,6 +153,11 @@ autoTypeToggle.addEventListener('change', e => {
 
 speedSlider.addEventListener('input', e => {
   updateSpeedValueLabel(e.target.value);
+});
+
+// Live preview: apply scale immediately when dropdown changes
+guiScaleSelect.addEventListener('change', e => {
+  applyGuiScale(e.target.value);
 });
 
 // Auto-open settings on first launch if no key saved
@@ -260,10 +290,11 @@ console.log('[vibe-voice] ready \u2014 tray + global hotkey active');
 
 // ── Auto-fit window height to content ────────────────────────────────────
 function refitWindow() {
-  const h = app.scrollHeight;
-  if (h > 0) {
+  // getBoundingClientRect returns the visual (zoom-aware) dimensions
+  const rect = app.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
     const LogicalSize = window.__TAURI__.window.LogicalSize;
-    appWindow.setSize(new LogicalSize(340, h)).catch(() => {});
+    appWindow.setSize(new LogicalSize(Math.ceil(rect.width), Math.ceil(rect.height))).catch(() => {});
   }
 }
 
@@ -271,4 +302,7 @@ function refitWindow() {
 new ResizeObserver(() => refitWindow()).observe(app);
 // Also fire once after fonts/icons have loaded
 requestAnimationFrame(() => refitWindow());
+
+// ── Apply persisted GUI scale on startup ─────────────────────────────────
+applyGuiScale(getStoredGuiScale());
 
