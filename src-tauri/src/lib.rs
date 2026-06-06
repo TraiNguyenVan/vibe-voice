@@ -78,6 +78,25 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn test_api_key(api_key: String) -> Result<(), String> {
+    if api_key.is_empty() {
+        return Err("API key cannot be empty".to_string());
+    }
+    let resp = reqwest::Client::new()
+        .get("https://api.groq.com/openai/v1/models")
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send().await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    let status = resp.status();
+    if status.is_success() {
+        Ok(())
+    } else {
+        Err(format!("Invalid key (status {status})"))
+    }
+}
+
+#[tauri::command]
 fn save_hotkeys(
     modifier: String,
     trigger: String,
@@ -825,14 +844,16 @@ fn show_window(app: &AppHandle) {
 // ── Tray Setup ───────────────────────────────────────────────────────────────
 
 fn setup_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::error::Error>> {
-    let record_item = MenuItemBuilder::with_id("record", "🎙 Record now").build(app)?;
+    let record_item = MenuItemBuilder::with_id("record", "Record now").build(app)?;
     let toggle_item = MenuItemBuilder::with_id("toggle", "Show / Hide").build(app)?;
+    let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
     let sep         = PredefinedMenuItem::separator(app)?;
     let quit_item   = MenuItemBuilder::with_id("quit", "Quit Vibe Voice").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&record_item)
         .item(&toggle_item)
+        .item(&settings_item)
         .item(&sep)
         .item(&quit_item)
         .build()?;
@@ -856,6 +877,10 @@ fn setup_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::er
                     app.emit("global-ptt-start", ()).ok();
                 }
                 "toggle" => toggle_window(app),
+                "settings" => {
+                    show_window(app);
+                    app.emit("open-settings", ()).ok();
+                }
                 "quit"   => app.exit(0),
                 _ => {}
             }
@@ -1167,6 +1192,7 @@ pub fn run() {
             flash_tray_done,
             save_hotkeys,
             open_url,
+            test_api_key,
         ])
         .setup(|app| {
             // System tray

@@ -9,7 +9,7 @@ button, input, select, textarea {
   --surface:    #111218; /* Dark charcoal/slate surface */
   --surface-grad: linear-gradient(135deg, #1b1c24 0%, #0e0f13 100%); /* Sleek dark gray gradient */
   --border:     rgba(255, 255, 255, 0.05); /* Minimalist border */
-  --border-hi:  rgba(255, 255, 255, 0.12); /* Clean subtle border highlight */
+  --border-hi:  rgba(255, 255, 255, 0.22); /* Clean subtle border highlight */
   --accent:     #f8fafc; /* Sleek titanium white */
   --accent-warm: #94a3b8; /* Cool medium slate */
   --accent-dim: rgba(255, 255, 255, 0.06);
@@ -187,6 +187,11 @@ html, body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2px;
+}
+
+.setting-label-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .settings-link-btn {

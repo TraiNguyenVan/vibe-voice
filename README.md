@@ -5,19 +5,26 @@
 [![Release](https://img.shields.io/github/v/release/TraiNguyenVan/vibe-voice?style=flat&label=release)](https://github.com/TraiNguyenVan/vibe-voice/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/TraiNguyenVan/vibe-voice/release.yml?style=flat&label=build)](https://github.com/TraiNguyenVan/vibe-voice/actions)
 
+<p align="center">
+  <img src="screenshots/recording.png" width="240" alt="Recording State" style="vertical-align: top; margin: 10px;">
+  <img src="screenshots/history.png" width="240" alt="History Panel" style="vertical-align: top; margin: 10px;">
+  <img src="screenshots/settings.png" width="240" alt="Settings Panel" style="vertical-align: top; margin: 10px;">
+</p>
+
 ---
 
 ## Features
 
 - **Push-to-talk** — hold a mic button or a configured global hotkey (default **Ctrl+Space**), release when done
 - **Groq Whisper** — lightning-fast speech-to-text via `whisper-large-v3-turbo`
-- **Auto-paste** — transcript is automatically pasted into your previously focused window (via `ydotool` on Linux, `SendInput` on Windows)
-- **Transcript History** — view, copy, or re-paste recent transcripts in a sleek monospaced history panel
-- **Custom Hotkeys** — pick custom modifier (Ctrl/Alt/Shift/None) and trigger keys in Settings
-- **Interface Scaling** — scale the UI from 80% to 150% directly inside Settings for accessibility
-- **Tray icon feedback** — red while recording, green flash when done
-- **Always-on-top widget** — small, transparent, no decorations, stays out of your way
-- **Private API key** — set your own Groq key via the Settings panel, stored in localStorage
+- **Auto-paste & Toggle** — transcript is automatically pasted into your active window (via `ydotool` on Linux, `SendInput` on Windows). Can be toggled off to only copy to the clipboard.
+- **Typing Keystroke Delay** — customize simulated typing speed (1ms to 50ms keystroke delay) directly in Settings to match your system's response rate.
+- **Transcript History** — view, copy, or re-paste recent transcripts in a sleek monospaced history panel.
+- **Custom Hotkeys** — pick custom modifier (Ctrl/Alt/Shift/None) and trigger keys in Settings.
+- **Interface Scaling** — scale the UI from 80% to 150% directly inside Settings for accessibility.
+- **Tray icon feedback** — red while recording, green flash when done.
+- **Always-on-top widget** — small, transparent, no decorations, stays out of your way.
+- **Private API key** — set your own Groq key via the Settings panel, stored in localStorage. Click the in-app link to quickly get a free Groq key.
 - **Fedora-first** — one-shot setup script included (`ydotool-setup.sh`)
 
 ---
@@ -52,7 +59,7 @@ sudo /usr/bin/ydotoold --socket-path=/tmp/.ydotool_socket --socket-own=$(id -u):
 sudo apt install ./vibe-voice_*.deb
 ```
 
-> **Windows is supported?** Yes! Vibe Voice fully supports Windows out-of-the-box using the native `cpal` recording backend and `SendInput` paste simulation.
+> **Note:** Vibe Voice is tested and verified to run on **Fedora** (Wayland/GNOME/Hyprland) and **Ubuntu** (GNOME).
 
 ---
 
@@ -60,8 +67,8 @@ sudo apt install ./vibe-voice_*.deb
 
 1. Launch **Vibe Voice** from your app menu / start menu or run `vibe-voice`
 2. Click the settings button `[~]` in the titlebar
-3. Paste your [Groq API Key](https://console.groq.com/keys)
-4. Customize your hotkeys, auto-type speed delay, and UI scale if desired
+3. Paste your Groq API Key (obtain one via the in-app settings link or from [console.groq.com/keys](https://console.groq.com/keys))
+4. Customize your hotkeys, toggle auto-type, adjust typing delay (1–50ms), and UI scale if desired
 5. Click **Save** — key and settings persist in local storage
 
 ---
@@ -75,9 +82,10 @@ sudo apt install ./vibe-voice_*.deb
 | Tray icon flashes green | Transcription done and pasted |
 | Click tray icon | Show / hide the widget |
 | History `[h]` | Show / hide recent transcripts panel to copy or paste them |
-| Settings `[~]` | Change API key, hotkeys, auto-type delay, and UI scale |
+| Settings `[~]` | Change and test API key, toggle auto-type, adjust typing delay, custom hotkeys, and UI scale |
+| Click Settings in tray menu | Show widget and open Settings panel |
 
-The widget window stays hidden throughout recording — only the tray icon signals state.
+The widget displays a dynamic waveform visualizer while recording and automatically hides when transcription and auto-pasting are complete.
 
 ---
 
@@ -173,6 +181,7 @@ pnpm run dev       # alias
 | `wl-copy` | `wl-clipboard` | Wayland clipboard write |
 | `ydotool` | `ydotool` | Types characters into the focused window via evdev |
 | `ydotoold` | (daemon) | Background daemon; user needs `input` group |
+| `/dev/input/event*` | (devices) | Keyboard events for global hotkeys; user needs `input` group |
 | `pnpm` | — | Node.js package manager |
 | Rust/Cargo | — | Compiling the Tauri backend |
 
@@ -183,9 +192,9 @@ pnpm run dev       # alias
 
 ## Technical Details
 
-### No Bundler
+### Frontend Architecture (No Bundler)
 
-The frontend is served as static files. Tauri APIs are accessed via `window.__TAURI__` globals — no Vite, no webpack, no `import` from `@tauri-apps/api`.
+The frontend is built using static files. Tauri APIs are accessed via the `window.__TAURI__` global object, bypassing the need for a bundler like Vite or Webpack.
 
 ### Audio Recording
 
@@ -205,11 +214,13 @@ The frontend is served as static files. Tauri APIs are accessed via `window.__TA
 
 ### Auto-paste Flow
 
+If **Auto-Type Transcript** is enabled in Settings, the full automation flow runs:
+
 - **Linux (Character-by-Character):**
   1. `wl-copy` writes transcript to Wayland clipboard (safety net).
   2. Window hides to return focus to previous app.
   3. 300ms wait for compositor to refocus.
-  4. `ydotool type --file -` types each character via evdev.
+  4. `ydotool type --file -` types each character via evdev (using the configured keystroke delay).
   5. Window stays hidden.
 - **Windows (Clipboard + Simulated Paste):**
   1. Writes text to the Windows Clipboard as Unicode.
@@ -217,6 +228,9 @@ The frontend is served as static files. Tauri APIs are accessed via `window.__TA
   3. 300ms wait.
   4. Simulates a `Ctrl+V` key sequence using `SendInput` FFI call.
   5. Window stays hidden.
+
+If **Auto-Type Transcript** is disabled:
+- The transcript is written to the system clipboard and the window is hidden (steps 1 and 2), allowing you to manually paste the text wherever you want via `Ctrl+V`.
 
 ### Global Hotkeys
 

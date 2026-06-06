@@ -246,6 +246,13 @@ function handleSettingsSave() {
     settingsStatus.className = 'error';
     return;
   }
+
+  const groqKeyRegex = /^gsk_[a-zA-Z0-9]{48,}$/;
+  if (!groqKeyRegex.test(key)) {
+    settingsStatus.textContent = 'Invalid API key format (must start with gsk_)';
+    settingsStatus.className = 'error';
+    return;
+  }
   saveApiKey(key);
 
   // Save auto-type & delay settings
@@ -282,6 +289,44 @@ document.getElementById('get-key-btn').addEventListener('click', () => {
   invoke('open_url', { url: 'https://console.groq.com/keys' }).catch(err => {
     console.error('[vibe-voice] Failed to open URL:', err);
   });
+});
+
+document.getElementById('test-key-btn').addEventListener('click', async () => {
+  const key = apiKeyInput.value.trim();
+  const testBtn = document.getElementById('test-key-btn');
+
+  if (!key) {
+    settingsStatus.textContent = 'Please enter a key to test';
+    settingsStatus.className = 'error';
+    return;
+  }
+
+  const groqKeyRegex = /^gsk_[a-zA-Z0-9]{48,}$/;
+  if (!groqKeyRegex.test(key)) {
+    settingsStatus.textContent = 'Invalid key format (must start with gsk_)';
+    settingsStatus.className = 'error';
+    return;
+  }
+
+  const originalText = testBtn.textContent;
+  testBtn.textContent = '[testing...]';
+  settingsStatus.textContent = 'Testing API key...';
+  settingsStatus.className = 'spinner';
+
+  try {
+    await invoke('test_api_key', { apiKey: key });
+    settingsStatus.textContent = 'API key is valid!';
+    settingsStatus.className = 'success-message';
+    testBtn.textContent = '[valid ✓]';
+  } catch (err) {
+    settingsStatus.textContent = `API key invalid: ${err}`;
+    settingsStatus.className = 'error';
+    testBtn.textContent = '[invalid ✗]';
+  }
+
+  setTimeout(() => {
+    testBtn.textContent = originalText;
+  }, 3000);
 });
 
 autoTypeToggle.addEventListener('change', e => {
@@ -441,6 +486,13 @@ listen('global-ptt-stop', () => {
   console.log('[vibe-voice] global PTT stop');
   stopAndTranscribe();
 }).catch(e => console.error('[vibe-voice] listen error:', e));
+
+listen('open-settings', () => {
+  console.log('[vibe-voice] open settings event received');
+  if (!settingsPanel.classList.contains('visible')) {
+    toggleSettings();
+  }
+}).catch(e => console.error('[vibe-voice] listen open-settings error:', e));
 
 // ── Init ──────────────────────────────────────────────────────────────────
 setStatus('idle');
