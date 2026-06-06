@@ -3,7 +3,6 @@ use std::io::Write;
 use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 #[cfg(target_os = "linux")]
 use std::sync::Arc;
-#[cfg(target_os = "linux")]
 use std::process::Command;
 use reqwest::multipart;
 use tauri::{
