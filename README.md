@@ -1,9 +1,3 @@
-
-https://github.com/user-attachments/assets/53cf2d33-84a0-4230-90f7-b98e6514da6b
-
-
-https://github.com/user-attachments/assets/3e7d8776-394f-4af9-95df-733c3f24763e
-
 # Vibe Voice
 
 > A push-to-talk speech-to-text widget for Linux/Wayland and Windows. Hold a button, speak, release — transcript lands in your active window.
