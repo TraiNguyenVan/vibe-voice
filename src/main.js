@@ -278,6 +278,11 @@ saveBtn.addEventListener('click', handleSettingsSave);
 apiKeyInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') handleSettingsSave();
 });
+document.getElementById('get-key-btn').addEventListener('click', () => {
+  invoke('open_url', { url: 'https://console.groq.com/keys' }).catch(err => {
+    console.error('[vibe-voice] Failed to open URL:', err);
+  });
+});
 
 autoTypeToggle.addEventListener('change', e => {
   updateSliderState(e.target.checked);

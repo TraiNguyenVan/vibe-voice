@@ -52,6 +52,32 @@ fn get_temp_wav_path() -> std::path::PathBuf {
 // ── Tauri Commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("failed to open URL: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("failed to open URL: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("failed to open URL: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn save_hotkeys(
     modifier: String,
     trigger: String,
@@ -1140,6 +1166,7 @@ pub fn run() {
             set_tray_recording,
             flash_tray_done,
             save_hotkeys,
+            open_url,
         ])
         .setup(|app| {
             // System tray

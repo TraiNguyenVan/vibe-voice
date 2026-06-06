@@ -182,6 +182,28 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+.setting-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.settings-link-btn {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: color 0.15s, opacity 0.15s;
+  text-decoration: none;
+  user-select: none;
+}
+
+.settings-link-btn:hover {
+  color: var(--accent-warm);
+  opacity: 0.9;
+}
+
 #api-key-wrap {
   position: relative;
   display: flex;
