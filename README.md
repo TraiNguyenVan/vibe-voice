@@ -1,9 +1,21 @@
+
+https://github.com/user-attachments/assets/53cf2d33-84a0-4230-90f7-b98e6514da6b
+
+
+https://github.com/user-attachments/assets/3e7d8776-394f-4af9-95df-733c3f24763e
+
 # Vibe Voice
 
 > A push-to-talk speech-to-text widget for Linux/Wayland and Windows. Hold a button, speak, release — transcript lands in your active window.
 
 [![Release](https://img.shields.io/github/v/release/TraiNguyenVan/vibe-voice?style=flat&label=release)](https://github.com/TraiNguyenVan/vibe-voice/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/TraiNguyenVan/vibe-voice/release.yml?style=flat&label=build)](https://github.com/TraiNguyenVan/vibe-voice/actions)
+
+
+
+https://github.com/user-attachments/assets/99b4cbb6-a61b-4a9b-9b31-bf0aa1b8dece
+
+
 
 <p align="center">
   <img src="screenshots/recording.png" width="240" alt="Recording State" style="vertical-align: top; margin: 10px;">
