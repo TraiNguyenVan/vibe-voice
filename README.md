@@ -9,13 +9,28 @@
 
 https://github.com/user-attachments/assets/99b4cbb6-a61b-4a9b-9b31-bf0aa1b8dece
 
-
-
-<p align="center">
-  <img src="screenshots/recording.png" width="240" alt="Recording State" style="vertical-align: top; margin: 10px;">
-  <img src="screenshots/history.png" width="240" alt="History Panel" style="vertical-align: top; margin: 10px;">
-  <img src="screenshots/settings.png" width="240" alt="Settings Panel" style="vertical-align: top; margin: 10px;">
-</p>
+<table align="center" border="0" cellspacing="0" cellpadding="8">
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshots/recording.png" width="320" alt="Recording"><br>
+      <sub><b>Recording</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshots/transcribing.png" width="320" alt="Transcribing"><br>
+      <sub><b>Transcribing</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshots/history.png" width="220" alt="History Panel"><br>
+      <sub><b>History</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshots/settings.png" width="220" alt="Settings Panel"><br>
+      <sub><b>Settings</b></sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
