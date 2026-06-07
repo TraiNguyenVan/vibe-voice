@@ -48,6 +48,8 @@ https://github.com/user-attachments/assets/7d6e769d-37c0-476b-abb4-00f823709d02
 - **Private API key** — set your own Groq key via the Settings panel, stored in localStorage. Click the in-app link to quickly get a free Groq key.
 - **Fedora-first** — one-shot setup script included (`ydotool-setup.sh`)
 
+> **Local transcription is coming soon.** Today, Vibe Voice uses the Groq API because it is fast, easy to set up, and works well for hobby projects, personal tools, prototypes, and other low-stakes workflows. If privacy is your priority, a local model option is planned so you can transcribe without sending audio to an external API.
+
 ---
 
 ## Quick Install
